@@ -340,7 +340,7 @@ async function studentTraining(){
   for(const l of ls){
    const el=document.getElementById('lecture_'+l.id);if(!el)continue;
    const p=pm.get(l.id)||{};let saved=Number(p.last_position_seconds||0),timer=null;
-   const vr=await sb.functions.invoke('lecture-progress',{body:{action:'video_url',lecture_id:l.id}});
+   const vr=await sb.functions.invoke('lecture-progress',{body:{action:'video_url',internship_id:i.id,lecture_id:l.id}});
    if(vr.error)throw vr.error;if(vr.data?.url)el.src=vr.data.url;
    el.addEventListener('loadedmetadata',()=>{if(saved>0&&saved<el.duration-2)el.currentTime=saved});
    el.addEventListener('seeking',()=>{if(el.currentTime>saved+8)el.currentTime=saved});
