@@ -115,6 +115,6 @@ async function savePortalControl(){
  const {error}=await q;if(error)throw error;toast('Portal settings saved');portalControl();
 }
 
-async function settings(){document.getElementById('content').innerHTML='<div class="panel"><h3>Portal Settings</h3><p class="muted">Production settings are controlled through the secure backend. Live payment credentials, email provider and domain configuration should be added before public launch.</p></div>'}
+async function legacySettings(){document.getElementById('content').innerHTML='<div class="panel"><h3>Legacy Settings</h3></div>'}
 sb.auth.getSession().then(({data})=>{if(data.session){sb.from('profiles').select('*').eq('id',data.session.user.id).maybeSingle().then(({data:p})=>{if(p?.role==='admin'){user=data.session.user;profile=p;document.getElementById('login').style.display='none';document.getElementById('app').style.display='block';document.getElementById('who').textContent=p.full_name||user.email;go('dashboard')}})}})
 </script></body></html>
