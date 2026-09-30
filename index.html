@@ -344,14 +344,14 @@ async function studentTraining(){
    if(vr.error)throw vr.error;if(vr.data?.url)el.src=vr.data.url;
    el.addEventListener('loadedmetadata',()=>{if(saved>0&&saved<el.duration-2)el.currentTime=saved});
    el.addEventListener('seeking',()=>{if(el.currentTime>saved+8)el.currentTime=saved});
-   el.addEventListener('play',async()=>{await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:i.id,lecture_id:l.id,position_seconds:el.currentTime}});timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,el),10000)});
+   el.addEventListener('play',async()=>{const sr=await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:i.id,lecture_id:l.id,position_seconds:el.currentTime}});if(sr.error){toast(sr.error.message||'Unable to start lecture');return}el.dataset.sessionId=sr.data?.progress?.active_session_id||'';timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,el),10000)});
    el.addEventListener('pause',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,el)});
    el.addEventListener('ended',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,el)});
   }
  }catch(e){document.getElementById('main').innerHTML=head('Online Training','Verified lecture-based learning workspace')+'<div class="card alert">'+esc(e.message||'Unable to load training.')+'</div>'}
 }
 async function sendLectureHeartbeat(internshipId,lectureId,video){
- const r=await sb.functions.invoke('lecture-progress',{body:{action:'heartbeat',internship_id:internshipId,lecture_id:lectureId,position_seconds:video.currentTime,playing:!video.paused,visibility_state:document.visibilityState}});
+ const r=await sb.functions.invoke('lecture-progress',{body:{action:'heartbeat',internship_id:internshipId,lecture_id:lectureId,position_seconds:video.currentTime,playing:!video.paused,visibility_state:document.visibilityState,session_id:video.dataset.sessionId||''}});
  if(r.error){console.warn(r.error);return}
  if(r.data?.progress){const el=document.getElementById('lp_'+lectureId);if(el)el.textContent=Number(r.data.progress.watched_seconds||0).toFixed(0)+' sec verified'+(r.data.progress.completed_at?' · Completed':'')}
  if(r.data?.progress?.completed_at){video.pause();toast('Lecture completed. Next lecture is now unlocked.');setTimeout(()=>studentTraining(),600)}
