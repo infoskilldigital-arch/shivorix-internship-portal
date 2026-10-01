@@ -100,7 +100,7 @@ async function submitApplication(){
   if(open?.length)throw Error('You already have an active application/internship.');
   const profilePayload={
    full_name:val('af_full_name'),father_name:val('af_father_name'),mother_name:val('af_mother_name'),
-   date_of_birth:val('af_dob'),gender:val('af_gender'),mobile,email:val('af_email'),
+   date_of_birth:val('af_dob'),gender:val('af_gender'),mobile:val('af_mobile'),email:val('af_email'),
    university_name:val('af_university'),course:val('af_course'),department:val('af_department'),
    semester:val('af_semester'),academic_session:val('af_session'),
    university_registration_number:val('af_reg'),college_roll_number:val('af_roll'),
