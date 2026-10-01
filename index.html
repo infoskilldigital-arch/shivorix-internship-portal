@@ -3,6 +3,14 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SHIVORIX Internship Portal</title>
+<script>
+window.addEventListener('error',function(e){
+ if(!window.__portalStarted && document.body){
+  var r=document.getElementById('root');
+  if(r)r.innerHTML='<div style="padding:40px;max-width:620px;margin:40px auto;font-family:system-ui"><div style="background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:30px"><h2>SHIVORIX Internship Portal</h2><div style="margin:15px 0;padding:12px;border-radius:10px;background:#fff7ed;color:#9a3412">Portal startup error: '+String(e.message||'External script failed').replace(/[&<>]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[m]})+'</div><button onclick="location.reload()" style="padding:10px 16px;border:0;border-radius:9px;background:linear-gradient(90deg,#ff7a00,#7c3aed);color:#fff;font-weight:700">Reload Portal</button></div></div>';
+ }
+});
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="https://checkout.razorpay.com/v1/checkout.js"></script><script>
 async function applyPage(){
  const {data:p,error:pe}=await sb.from('profiles').select('full_name,father_name,mother_name,date_of_birth,gender,mobile,email,permanent_address,city,state,pin_code,college_name,university_name,course,department,semester,academic_session,college_roll_number,university_registration_number,college_id,internship_sector_id').eq('id',state.user.id).single();
@@ -247,6 +255,7 @@ function downloadCsv(name,rows){if(!rows.length)return toast('No data.');const k
 })();
 </script>
 <script>
+window.__portalStarted=true;
 const SUPABASE_URL='https://ueavgukmwlydxktekxdh.supabase.co';
 const SUPABASE_KEY='sb_publishable_hEewEkvycotewQJbPlonGg_yCVxWWHk';
 const OTP_URL=SUPABASE_URL+'/functions/v1/student-otp-login';
