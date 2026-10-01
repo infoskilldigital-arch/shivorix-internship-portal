@@ -4,32 +4,173 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SHIVORIX Internship Portal</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="https://checkout.razorpay.com/v1/checkout.js"></script><script>
-async function applyPage(){const {data:p}=await sb.from('profiles').select('college_id,internship_sector_id').eq('id',state.user.id).single();const {data:ss}=await sb.from('internship_sectors').select('id,name').eq('is_active',true).order('name');document.getElementById('main').innerHTML=head('Apply for Internship','Submit your credit-based internship application for Node Officer review')+'<div class="card"><div class="form two-col"><div class="field"><label>Internship Sector *</label><select id="sector">'+(ss||[]).map(x=>'<option value="'+x.id+'" '+(x.id===p?.internship_sector_id?'selected':'')+'>'+esc(x.name)+'</option>').join('')+'</select></div><div class="field"><label>Mode</label><select id="mode"><option value="online">Online</option><option value="offline">Offline</option><option value="hybrid">Hybrid</option></select></div><div class="field"><label>Required Hours</label><input id="hours" type="number" min="90" max="120" value="120"></div><div class="field"><label>Credits</label><input id="credits" type="number" min="1" value="4"></div><div class="field"><label>Preferred Start Date</label><input id="start" type="date"></div><div class="field"><label>Preferred End Date</label><input id="end" type="date"></div></div><div class="alert" style="margin-top:15px">Application → Node Officer review → Internship activation. Payment is disabled in this demo.</div><button class="btn btn-primary" style="margin-top:15px" onclick="submitApplication()">Submit Application</button></div>'}
-async function submitApplication(){try{
- if(!state.user?.id)throw Error('Your login session has expired. Please log in again.');
- const {data:p,error:pe}=await sb.from('profiles').select('college_id').eq('id',state.user.id).maybeSingle();
+async function applyPage(){
+ const {data:p,error:pe}=await sb.from('profiles').select('full_name,father_name,mother_name,date_of_birth,gender,mobile,email,permanent_address,city,state,pin_code,college_name,university_name,course,department,semester,academic_session,college_roll_number,university_registration_number,college_id,internship_sector_id').eq('id',state.user.id).single();
  if(pe)throw pe;
- if(!p?.college_id)throw Error('Your college is not assigned. Please contact SHIVORIX Admin.');
- const sector=document.getElementById('sector')?.value,mode=document.getElementById('mode')?.value;
- if(!sector||!mode)throw Error('Please select Internship Sector and Mode.');
- const hours=Number(document.getElementById('hours')?.value||120),credits=Number(document.getElementById('credits')?.value||4);
- if(hours<90||hours>120)throw Error('Credit-based internship hours must be between 90 and 120.');
- const {data:open,error:oe}=await sb.from('internship_applications').select('id,status').eq('student_id',state.user.id).in('status',['submitted','under_review','approved','active','returned']).order('created_at',{ascending:false}).limit(1);
- if(oe)throw oe;
- if(open?.length)throw Error('You already have an active application/internship.');
- const payload={application_number:'SHX-'+Date.now().toString(36).toUpperCase(),student_id:state.user.id,college_id:p.college_id,sector_id:sector,mode,requested_hours:hours,requested_credits:credits,preferred_start_date:document.getElementById('start')?.value||null,preferred_end_date:document.getElementById('end')?.value||null,status:'submitted',node_review_status:'pending',payment_required:false};
- const {data:created,error}=await sb.from('internship_applications').insert(payload).select('id,status').single();
- if(error)throw error;
- if(!created?.id)throw Error('Application was not created. Please try again.');
- toast('Application submitted successfully');
- go('application');
-}catch(e){
- const msg=e?.message||'Unable to submit application';
- const detail=[e?.details,e?.hint,e?.code].filter(Boolean).join(' · ');
- toast(detail?msg+' — '+detail:msg);
- console.error('Application submit error',e);
-}}
-async function application(){const {data:a}=await sb.from('internship_applications').select('*,internship_sectors(name),colleges(name)').eq('student_id',state.user.id).order('created_at',{ascending:false});document.getElementById('main').innerHTML=head('My Application','Track approval and activation')+'<div class="grid">'+(a||[]).map(x=>'<div class="card"><div style="display:flex;justify-content:space-between;gap:15px"><div><b>'+esc(x.application_number)+'</b><p class="muted">'+esc(x.internship_sectors?.name||'')+' · '+esc(x.mode)+'</p></div><span class="badge '+(x.status==='active'?'green':x.status==='rejected'?'red':'orange')+'">'+esc(x.status)+'</span></div><div class="grid two" style="margin-top:15px"><div><small class="muted">College</small><div>'+esc(x.colleges?.name||'')+'</div></div><div><small class="muted">Node Review</small><div>'+esc(x.node_review_status)+'</div></div><div><small class="muted">Hours / Credits</small><div>'+x.requested_hours+' hrs · '+x.requested_credits+' credits</div></div></div>'+(x.node_review_remarks?'<div class="alert" style="margin-top:14px">'+esc(x.node_review_remarks)+'</div>':'')+'</div>').join('')||'<div class="card empty">No application submitted yet.</div>'+'</div>'}
+ const {data:ss,error:se}=await sb.from('internship_sectors').select('id,name').eq('is_active',true).order('name');
+ if(se)throw se;
+ const v=x=>esc(x??'');
+ document.getElementById('main').innerHTML=head('Apply for Internship','Complete your details and upload the required documents before submitting your internship application')+
+ `<div class="card">
+ <div class="alert">All fields marked * are mandatory. Your application will be sent to the concerned Node Officer for verification.</div>
+ <h3 style="margin:18px 0 10px">1. Personal Details</h3>
+ <div class="form two-col">
+  <div class="field"><label>Full Name *</label><input id="af_full_name" value="${v(p?.full_name)}" required></div>
+  <div class="field"><label>Father's Name *</label><input id="af_father_name" value="${v(p?.father_name)}" required></div>
+  <div class="field"><label>Mother's Name *</label><input id="af_mother_name" value="${v(p?.mother_name)}" required></div>
+  <div class="field"><label>Date of Birth *</label><input id="af_dob" type="date" value="${v(p?.date_of_birth)}" required></div>
+  <div class="field"><label>Gender *</label><select id="af_gender" required><option value="">Select Gender</option><option value="male" ${p?.gender==='male'?'selected':''}>Male</option><option value="female" ${p?.gender==='female'?'selected':''}>Female</option><option value="other" ${p?.gender==='other'?'selected':''}>Other</option></select></div>
+  <div class="field"><label>Mobile Number *</label><input id="af_mobile" inputmode="numeric" maxlength="10" value="${v(p?.mobile)}" required></div>
+  <div class="field"><label>Email Address *</label><input id="af_email" type="email" value="${v(p?.email||state.user?.email)}" required></div>
+ </div>
+ <h3 style="margin:22px 0 10px">2. Academic Details</h3>
+ <div class="form two-col">
+  <div class="field"><label>University *</label><input id="af_university" value="${v(p?.university_name)}" required></div>
+  <div class="field"><label>College / Institute *</label><input id="af_college" value="${v(p?.college_name)}" required readonly></div>
+  <div class="field"><label>Course / Programme *</label><input id="af_course" value="${v(p?.course)}" required></div>
+  <div class="field"><label>Department *</label><input id="af_department" value="${v(p?.department)}" required></div>
+  <div class="field"><label>Current Semester *</label><input id="af_semester" value="${v(p?.semester)}" required></div>
+  <div class="field"><label>Academic Session *</label><input id="af_session" value="${v(p?.academic_session)}" required></div>
+  <div class="field"><label>University Registration Number *</label><input id="af_reg" value="${v(p?.university_registration_number)}" required></div>
+  <div class="field"><label>College Roll Number *</label><input id="af_roll" value="${v(p?.college_roll_number)}" required></div>
+ </div>
+ <h3 style="margin:22px 0 10px">3. Internship Details</h3>
+ <div class="form two-col">
+  <div class="field"><label>Internship Sector *</label><select id="af_sector" required><option value="">Select Internship Sector</option>${(ss||[]).map(x=>'<option value="'+x.id+'" '+(x.id===p?.internship_sector_id?'selected':'')+'>'+esc(x.name)+'</option>').join('')}</select></div>
+  <div class="field"><label>Internship Mode *</label><select id="af_mode" required><option value="online">Online</option><option value="offline">Offline</option><option value="hybrid">Hybrid</option></select></div>
+  <div class="field"><label>Required Hours *</label><input id="af_hours" type="number" min="90" max="120" value="120" required></div>
+  <div class="field"><label>Credits *</label><input id="af_credits" type="number" min="1" value="4" required></div>
+  <div class="field"><label>Preferred Start Date *</label><input id="af_start" type="date" required></div>
+  <div class="field"><label>Preferred End Date *</label><input id="af_end" type="date" required></div>
+ </div>
+ <h3 style="margin:22px 0 10px">4. Address Details</h3>
+ <div class="form two-col">
+  <div class="field"><label>State *</label><input id="af_state" value="${v(p?.state)}" required></div>
+  <div class="field"><label>City / District *</label><input id="af_city" value="${v(p?.city)}" required></div>
+  <div class="field"><label>Pincode *</label><input id="af_pin" inputmode="numeric" maxlength="6" value="${v(p?.pin_code)}" required></div>
+  <div class="field"><label>Full Address *</label><textarea id="af_address" rows="3" required>${v(p?.permanent_address)}</textarea></div>
+ </div>
+ <h3 style="margin:22px 0 10px">5. Required Documents</h3>
+ <div class="alert">Upload clear and readable PDF, JPG, PNG or WEBP files. Maximum 10 MB per file.</div>
+ <div class="form two-col">
+  <div class="field"><label>4th Semester Admit Card *</label><input id="af_admit" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" required></div>
+  <div class="field"><label>APAAR / ABC ID Proof *</label><input id="af_apaar" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" required></div>
+  <div class="field"><label>College ID Card *</label><input id="af_college_id" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" required></div>
+  <div class="field"><label>College Internship Letter / Consent Letter *</label><input id="af_consent" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" required></div>
+  <div class="field"><label>Passport-size Photograph *</label><input id="af_photo" type="file" accept="image/jpeg,image/png,image/webp" required></div>
+ </div>
+ <h3 style="margin:22px 0 10px">6. Declaration</h3>
+ <div class="form">
+  <label><input id="af_decl1" type="checkbox"> I confirm that all information provided by me is true and correct.</label>
+  <label><input id="af_decl2" type="checkbox"> I agree to follow the rules and guidelines of the SHIVORIX internship programme.</label>
+  <label><input id="af_decl3" type="checkbox"> I understand that my application is subject to verification and approval by the concerned authority.</label>
+ </div>
+ <button id="af_submit" class="btn btn-primary" style="margin-top:20px" onclick="submitApplication()">Submit Internship Application</button>
+ </div>`;
+}
+async function submitApplication(){
+ const uploaded=[];
+ try{
+  if(!state.user?.id)throw Error('Your login session has expired. Please log in again.');
+  const requiredIds=['af_full_name','af_father_name','af_mother_name','af_dob','af_gender','af_mobile','af_email','af_university','af_college','af_course','af_department','af_semester','af_session','af_reg','af_roll','af_sector','af_mode','af_hours','af_credits','af_start','af_end','af_state','af_city','af_pin','af_address'];
+  for(const id of requiredIds){const el=document.getElementById(id);if(!el?.value?.trim())throw Error('Please complete all required details.');}
+  if(!/^\\d{10}$/.test(document.getElementById('af_mobile').value.trim()))throw Error('Please enter a valid 10-digit mobile number.');
+  if(!/^\\d{6}$/.test(document.getElementById('af_pin').value.trim()))throw Error('Please enter a valid 6-digit pincode.');
+  if(!document.getElementById('af_decl1').checked||!document.getElementById('af_decl2').checked||!document.getElementById('af_decl3').checked)throw Error('Please accept all declarations before submitting.');
+  const hours=Number(document.getElementById('af_hours').value||0),credits=Number(document.getElementById('af_credits').value||0);
+  if(hours<90||hours>120)throw Error('Required internship hours must be between 90 and 120.');
+  if(credits<1)throw Error('Credits must be at least 1.');
+  if(new Date(document.getElementById('af_end').value)<new Date(document.getElementById('af_start').value))throw Error('End date cannot be before start date.');
+  const {data:p,error:pe}=await sb.from('profiles').select('college_id').eq('id',state.user.id).single();
+  if(pe)throw pe;
+  if(!p?.college_id)throw Error('Your college is not assigned. Please contact SHIVORIX Admin.');
+  const {data:open,error:oe}=await sb.from('internship_applications').select('id,status').eq('student_id',state.user.id).in('status',['submitted','under_review','approved','active']).order('created_at',{ascending:false}).limit(1);
+  if(oe)throw oe;
+  if(open?.length)throw Error('You already have an active application/internship.');
+  const profilePayload={
+   full_name:document.getElementById('af_full_name').value.trim(),
+   father_name:document.getElementById('af_father_name').value.trim(),
+   mother_name:document.getElementById('af_mother_name').value.trim(),
+   date_of_birth:document.getElementById('af_dob').value,
+   gender:document.getElementById('af_gender').value,
+   mobile:document.getElementById('af_mobile').value.trim(),
+   email:document.getElementById('af_email').value.trim(),
+   university_name:document.getElementById('af_university').value.trim(),
+   course:document.getElementById('af_course').value.trim(),
+   department:document.getElementById('af_department').value.trim(),
+   semester:document.getElementById('af_semester').value.trim(),
+   academic_session:document.getElementById('af_session').value.trim(),
+   university_registration_number:document.getElementById('af_reg').value.trim(),
+   college_roll_number:document.getElementById('af_roll').value.trim(),
+   state:document.getElementById('af_state').value.trim(),
+   city:document.getElementById('af_city').value.trim(),
+   pin_code:document.getElementById('af_pin').value.trim(),
+   permanent_address:document.getElementById('af_address').value.trim()
+  };
+  const {error:upe}=await sb.from('profiles').update(profilePayload).eq('id',state.user.id);
+  if(upe)throw upe;
+  const docs=[
+   ['4th Semester Admit Card','af_admit'],
+   ['APAAR / ABC ID Proof','af_apaar'],
+   ['College ID Card','af_college_id'],
+   ['College Internship Consent Letter','af_consent'],
+   ['Passport-size Photograph','af_photo']
+  ];
+  for(const [title,id] of docs){
+   const f=document.getElementById(id)?.files?.[0];
+   if(!f)throw Error('Please upload '+title+'.');
+   if(f.size>10*1024*1024)throw Error(title+' must be 10 MB or smaller.');
+   const allowed=['application/pdf','image/jpeg','image/png','image/webp'];
+   if(!allowed.includes(f.type))throw Error(title+' has an unsupported file type.');
+   if(title==='Passport-size Photograph'&&!['image/jpeg','image/png','image/webp'].includes(f.type))throw Error('Passport-size Photograph must be an image.');
+   const safe=f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+   const path=state.user.id+'/application/'+Date.now()+'_'+safe;
+   const {error:up}=await sb.storage.from('student-documents').upload(path,f,{contentType:f.type,upsert:false});
+   if(up)throw up;
+   uploaded.push(path);
+  }
+  const payload={
+   application_number:'SHX-'+Date.now().toString(36).toUpperCase(),
+   student_id:state.user.id,
+   college_id:p.college_id,
+   sector_id:document.getElementById('af_sector').value,
+   mode:document.getElementById('af_mode').value,
+   internship_type:'credit_based',
+   requested_hours:hours,
+   requested_credits:credits,
+   preferred_start_date:document.getElementById('af_start').value,
+   preferred_end_date:document.getElementById('af_end').value,
+   status:'submitted',
+   node_review_status:'pending',
+   payment_required:false
+  };
+  const {data:created,error:ae}=await sb.from('internship_applications').insert(payload).select('id,status').single();
+  if(ae)throw ae;
+  if(!created?.id)throw Error('Application was not created. Please try again.');
+  for(let i=0;i<docs.length;i++){
+   const [title,id]=docs[i],f=document.getElementById(id).files[0];
+   const {error:de}=await sb.from('student_documents').insert({
+    student_id:state.user.id,
+    college_id:p.college_id,
+    document_type:title,
+    document_title:f.name,
+    file_path:uploaded[i],
+    mime_type:f.type,
+    file_size:f.size,
+    uploaded_by:state.user.id
+   });
+   if(de)throw de;
+  }
+  toast('Internship application submitted successfully');
+  go('application');
+ }catch(e){
+  if(uploaded.length){try{await sb.storage.from('student-documents').remove(uploaded)}catch(_e){}}
+  const msg=e?.message||'Unable to submit internship application';
+  const detail=[e?.details,e?.hint,e?.code].filter(Boolean).join(' · ');
+  toast(detail?msg+' — '+detail:msg);
+  console.error('Application submit error',e);
+ }
+}async function application(){const {data:a}=await sb.from('internship_applications').select('*,internship_sectors(name),colleges(name)').eq('student_id',state.user.id).order('created_at',{ascending:false});document.getElementById('main').innerHTML=head('My Application','Track approval and activation')+'<div class="grid">'+(a||[]).map(x=>'<div class="card"><div style="display:flex;justify-content:space-between;gap:15px"><div><b>'+esc(x.application_number)+'</b><p class="muted">'+esc(x.internship_sectors?.name||'')+' · '+esc(x.mode)+'</p></div><span class="badge '+(x.status==='active'?'green':x.status==='rejected'?'red':'orange')+'">'+esc(x.status)+'</span></div><div class="grid two" style="margin-top:15px"><div><small class="muted">College</small><div>'+esc(x.colleges?.name||'')+'</div></div><div><small class="muted">Node Review</small><div>'+esc(x.node_review_status)+'</div></div><div><small class="muted">Hours / Credits</small><div>'+x.requested_hours+' hrs · '+x.requested_credits+' credits</div></div></div>'+(x.node_review_remarks?'<div class="alert" style="margin-top:14px">'+esc(x.node_review_remarks)+'</div>':'')+'</div>').join('')||'<div class="card empty">No application submitted yet.</div>'+'</div>'}
 async function applications(){const {data}=await sb.from('internship_applications').select('*,internship_sectors(name),profiles(full_name,college_name,university_registration_number,college_roll_number),colleges(name)').order('created_at',{ascending:false});document.getElementById('main').innerHTML=head('Applications',state.role==='admin'?'Central application control':'Review applications from your assigned college')+'<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>College</th><th>Sector</th><th>Status</th><th>Review</th><th>Action</th></tr></thead><tbody>'+(data||[]).map(x=>'<tr><td>'+esc(x.profiles?.full_name)+'</td><td>'+esc(x.colleges?.name||x.profiles?.college_name)+'</td><td>'+esc(x.internship_sectors?.name)+'</td><td>'+esc(x.status)+'</td><td>'+esc(x.node_review_status)+'</td><td>'+(state.role==='node_officer'&&['pending','returned'].includes(x.node_review_status)?'<button class="btn btn-primary" onclick="reviewApp(\''+x.id+'\',\'approved\')">Approve</button> <button class="btn btn-soft" onclick="reviewApp(\''+x.id+'\',\'returned\')">Return</button> <button class="btn btn-danger" onclick="reviewApp(\''+x.id+'\',\'rejected\')">Reject</button>':'—')+'</td></tr>').join('')||'<tr><td colspan="6" class="empty">No applications found.</td></tr>'+'</tbody></table></div></div>'}
 async function reviewApp(id,status){const remarks=prompt(status==='returned'?'Correction required (optional):':status==='rejected'?'Reason (optional):':'Remarks (optional):','')||null;const {error}=await sb.from('internship_applications').update({node_review_status:status,status:status==='approved'?'approved':status==='returned'?'returned':'rejected',node_reviewed_at:new Date().toISOString(),node_review_remarks:remarks}).eq('id',id);if(error)toast(error.message);else{toast('Application updated');applications()}}
 async function payments(){const {data}=await sb.from('payments').select('*,profiles(full_name,college_name),internship_applications(application_number,status)').order('created_at',{ascending:false});document.getElementById('main').innerHTML=head('Payments','Payment orders, successful payments and administrative waivers')+'<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Application</th><th>Amount</th><th>Provider</th><th>Status</th><th>Action</th></tr></thead><tbody>'+(data||[]).map(x=>'<tr><td>'+esc(x.profiles?.full_name)+'</td><td>'+esc(x.internship_applications?.application_number||'')+'</td><td>₹'+Number(x.amount||0).toLocaleString('en-IN')+'</td><td>'+esc(x.provider||'—')+'</td><td>'+esc(x.status)+'</td><td>'+(x.status==='pending'?'<button class="btn btn-soft" onclick="waivePayment(\''+x.id+'\')">Waive & Activate</button>':'—')+'</td></tr>').join('')||'<tr><td colspan="6" class="empty">No payments.</td></tr>'+'</tbody></table></div></div>'}
