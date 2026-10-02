@@ -472,14 +472,14 @@ async function studentTraining(){
   if(!i){document.getElementById('main').innerHTML=head('Online Training','Verified lecture-based learning workspace')+'<div class="card empty">Online training unlocks after Node Officer approval and internship activation.</div>';return}
   const {data:sec}=await sb.from('internship_sectors').select('id,name').eq('name',i.domain).maybeSingle();
   if(!sec){document.getElementById('main').innerHTML=head('Online Training','Verified lecture-based learning workspace')+'<div class="card empty">Training content for your sector is not published yet.</div>';return}
-  const {data:lectures}=await sb.from('training_lectures').select('*').eq('sector_id',sec.id).eq('is_active',true).order('sequence_no');
+  const {data:lectures}=await sb.from('training_lectures').select('*').eq('sector_id',sec.id).eq('is_active',true).order('lecture_date',{ascending:true}).order('sequence_no',{ascending:true});
   const {data:progress}=await sb.from('lecture_progress').select('*').eq('internship_id',i.id).eq('student_id',state.user.id);
   const ls=lectures||[],ps=progress||[],pm=new Map(ps.map(x=>[x.lecture_id,x]));
   const total=ls.reduce((a,x)=>a+Number(x.duration_seconds||0),0),watched=ps.reduce((a,x)=>a+Number(x.watched_seconds||0),0),pct=total?Math.min(100,Math.round(watched*100/total)):0;
   let unlock=true,html='';
   for(const l of ls){
    const p=pm.get(l.id),done=!!p?.completed_at,locked=!unlock;
-   html+='<div class="card" style="margin-top:12px"><div style="display:flex;justify-content:space-between;gap:10px"><div><b>Lecture '+l.sequence_no+': '+esc(l.title)+'</b><div class="muted">'+Math.ceil(Number(l.duration_seconds||0)/60)+' min</div></div><span class="badge '+(done?'green':locked?'':'orange')+'">'+(done?'Completed':locked?'Locked':'Available')+'</span></div>';
+   html+='<div class="card" style="margin-top:12px"><div style="display:flex;justify-content:space-between;gap:10px"><div><b>Lecture '+l.sequence_no+': '+esc(l.title)+'</b><div class="muted">'+esc(l.lecture_date||'')+' · '+Math.ceil(Number(l.duration_seconds||0)/60)+' min</div></div><span class="badge '+(done?'green':locked?'':'orange')+'">'+(done?'Completed':locked?'Locked':'Available')+'</span></div>';
    if(locked)html+='<p class="muted" style="margin-top:12px">Complete the previous lecture to unlock this lecture.</p>';
    else html+='<video id="lecture_'+l.id+'" controls preload="metadata" style="width:100%;margin-top:12px;border-radius:10px;background:#000"></video><div id="lp_'+l.id+'" class="muted" style="font-size:12px;margin-top:6px">'+(p?Number(p.watched_seconds||0).toFixed(0)+' sec verified':'Not started')+'</div>';
    html+='</div>';unlock=done;
