@@ -443,87 +443,28 @@ async function nodePage(){const [{data},{data:collegesData}]=await Promise.all([
 async function createNodeOfficer(){try{if(!document.getElementById('ncollege').value)throw Error('Select a college first.');await adminAction('create_staff',{role:'node_officer',full_name:document.getElementById('nname').value,email:document.getElementById('nemail').value,password:document.getElementById('npass').value,mobile:document.getElementById('nmobile').value,node_code:document.getElementById('ncode').value,college_id:document.getElementById('ncollege').value});toast('Node Officer created and assigned');nodePage()}catch(e){toast(e.message||'Unable to create Node Officer')}}
 async function internships(){const {data}=await sb.from('internships').select('*').order('created_at',{ascending:false});document.getElementById('main').innerHTML=head('Internships','Activated and completed internship records')+`<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Application</th><th>Domain</th><th>Mode</th><th>Hours</th><th>Credits</th><th>Status</th></tr></thead><tbody>${(data||[]).map(x=>`<tr><td>${esc(x.application_id)}</td><td>${esc(x.domain)}</td><td>${x.mode}</td><td>${x.total_hours}</td><td>${x.credits}</td><td>${x.status}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">No internship records.</td></tr>'}</tbody></table></div></div>`}
 async function training(){
- if(state.role==='admin'||state.role==='node_officer'){
-   const {data}=await sb.from('training_modules').select('*').order('sequence_no');
-   document.getElementById('main').innerHTML=head('Training','Manage internship learning modules')+`<div class="grid two">${(data||[]).map(x=>`<div class="card"><b>${x.sequence_no}. ${esc(x.title)}</b><p class="muted">${esc(x.description||'')}</p><span class="badge">${x.estimated_hours} hrs</span></div>`).join('')||'<div class="card empty">No training modules created yet.</div>'}</div>`;
-   return;
+ if(state.role==='admin'){
+  const {data:sectors,error:se}=await sb.from('internship_sectors').select('id,name').order('name');if(se)throw se;
+  const {data:lectures,error:le}=await sb.from('training_lectures').select('*,internship_sectors(name)').order('lecture_date',{ascending:false}).order('sequence_no');if(le)throw le;
+  document.getElementById('main').innerHTML=head('Training','Daily sector-wise lectures and verified attendance')+
+  '<div class="grid two"><div class="card"><b>Add Lecture</b><div class="form" style="margin-top:14px">'+
+  '<div class="field"><label>Sector *</label><select id="tl_sector"><option value="">Select sector</option>'+((sectors||[]).map(x=>'<option value="'+x.id+'">'+esc(x.name)+'</option>').join(''))+'</select></div>'+
+  '<div class="field"><label>Lecture Date *</label><input id="tl_date" type="date" value="'+localToday()+'"></div>'+
+  '<div class="field"><label>Lecture Title *</label><input id="tl_title"></div>'+
+  '<div class="field"><label>Sequence No.</label><input id="tl_seq" type="number" min="1" value="1"></div>'+
+  '<div class="field"><label>Duration (minutes) *</label><input id="tl_duration" type="number" min="1" value="30"></div>'+
+  '<div class="field"><label>Video URL *</label><input id="tl_video"></div>'+
+  '<div class="field full"><label>Description</label><textarea id="tl_desc" rows="3"></textarea></div>'+
+  '<button class="btn btn-primary" onclick="saveTrainingLecture()">Publish Lecture</button></div></div>'+
+  '<div class="card"><b>Training rule</b><p class="muted">One daily lecture per sector. Students see only their sector. Previous lectures remain available and future lectures stay locked.</p><p class="muted">Attendance is recorded after verified lecture completion.</p></div></div>'+
+  '<div class="card" style="margin-top:16px"><b>All Lectures</b><div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>Date</th><th>Sector</th><th>Lecture</th><th>Duration</th><th>Status</th></tr></thead><tbody>'+
+  ((lectures||[]).map(x=>'<tr><td>'+esc(x.lecture_date)+'</td><td>'+esc(x.internship_sectors&&x.internship_sectors.name||'')+'</td><td>'+esc(x.title)+'</td><td>'+Math.ceil(Number(x.duration_seconds||0)/60)+' min</td><td>'+(x.is_active?'Published':'Unpublished')+'</td></tr>').join('')||'<tr><td colspan="5" class="empty">No lectures uploaded yet.</td></tr>')+
+  '</tbody></table></div></div>';return;
  }
- const {data:i}=await sb.from('internships').select('*').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle();
- if(!i){document.getElementById('main').innerHTML=head('Online Training','Your sector-wise internship learning workspace')+`<div class="card empty">Online training will unlock after your Node Officer approval.</div>`;return}
- const {data:sec}=await sb.from('internship_sectors').select('id,name').eq('name',i.domain).maybeSingle();
- if(!sec){document.getElementById('main').innerHTML=head('Online Training','Your sector-wise internship learning workspace')+`<div class="card empty">Training modules are being prepared for your selected sector.</div>`;return}
- const {data:mods}=await sb.from('training_modules').select('*').eq('sector_id',sec.id).eq('is_active',true).order('sequence_no');
- const {data:prog}=await sb.from('training_progress').select('*').eq('internship_id',i.id).eq('student_id',state.user.id);
- const pm=new Map((prog||[]).map(x=>[x.module_id,x]));
- const completed=(mods||[]).filter(m=>pm.get(m.id)?.status==='completed').length;
- const pct=mods?.length?Math.round(completed*100/mods.length):0;
- document.getElementById('main').innerHTML=head('Online Training',`${esc(sec.name)} · ${completed}/${mods?.length||0} modules completed`)+
- `<div class="card"><div style="display:flex;justify-content:space-between;gap:15px"><div><b>Training Progress</b><p class="muted" style="margin:5px 0 0">Complete each module as part of your internship learning journey.</p></div><strong>${pct}%</strong></div><div class="progress" style="margin-top:14px"><div class="bar" style="width:${pct}%"></div></div></div>
- <div class="grid two" style="margin-top:16px">${(mods||[]).map(m=>{const p=pm.get(m.id);const done=p?.status==='completed';return `<div class="card"><div style="display:flex;justify-content:space-between;gap:10px"><b>${m.sequence_no}. ${esc(m.title)}</b><span class="badge ${done?'green':''}">${done?'Completed':(p?.status==='in_progress'?'In Progress':'Not Started')}</span></div><p class="muted">${esc(m.description||'')}</p><div class="muted" style="font-size:12px">${m.estimated_hours||0} hours</div><details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">Open learning content</summary><div style="white-space:pre-wrap;line-height:1.65;margin-top:10px;font-size:13px">${esc(m.content||'Learning content will be available here.')}</div>${m.resource_url?`<p><a href="${esc(m.resource_url)}" target="_blank">Open resource</a></p>`:''}</details><button class="btn ${done?'btn-soft':'btn-primary'}" style="margin-top:14px" ${done?'disabled':''} onclick="completeModule('${m.id}')">${done?'Module Completed':'Mark Module Complete'}</button></div>`}).join('')||'<div class="card empty">No modules available.</div>'}</div>`;
+ return studentTraining();
 }
-async function completeModule(moduleId){try{const {data:i}=await sb.from('internships').select('id,status').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle();if(!i)throw Error('Your internship is not active.');const {error}=await sb.from('training_progress').upsert({internship_id:i.id,student_id:state.user.id,module_id:moduleId,status:'completed',completed_at:new Date().toISOString(),updated_at:new Date().toISOString()},{onConflict:'internship_id,module_id'});if(error)throw error;toast('Module completed');training()}catch(e){toast(e.message||'Unable to update training progress')}}
-async function reports(){document.getElementById('main').innerHTML=head('Reports','Structured portal reporting')+`<div class="grid two"><div class="card"><b>Student & College Reports</b><p class="muted">Use the Students and Applications sections for live records. Export functionality can be added when your reporting format is finalized.</p></div><div class="card"><b>Internship Completion</b><p class="muted">Track hours, credits, evaluations and certificates from the connected records.</p></div></div>`}
-async function audit(){const {data}=await sb.from('audit_logs').select('*').order('created_at',{ascending:false}).limit(100);document.getElementById('main').innerHTML=head('Audit Logs','Administrative activity trail')+`<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Action</th><th>Entity</th><th>College</th><th>Date</th></tr></thead><tbody>${(data||[]).map(x=>`<tr><td>${esc(x.action)}</td><td>${esc(x.entity_type)}</td><td>${esc(x.college_id||'—')}</td><td>${new Date(x.created_at).toLocaleString()}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No audit events yet.</td></tr>'}</tbody></table></div></div>`}
-async function progress(){document.getElementById('main').innerHTML=head('Progress','Student progress in your assigned college')+`<div class="card empty">Progress is calculated from attendance, training, assignments and project completion records.</div>`}
-async function evaluations(){const {data}=await sb.from('evaluations').select('*').order('created_at',{ascending:false});document.getElementById('main').innerHTML=head('Evaluations','Internship performance evaluations')+`<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Overall</th><th>Rating</th><th>Evaluated</th></tr></thead><tbody>${(data||[]).map(x=>`<tr><td>${x.student_id}</td><td>${x.overall_score??'—'}</td><td>${esc(x.rating||'—')}</td><td>${x.evaluated_at?new Date(x.evaluated_at).toLocaleDateString():'—'}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No evaluations yet.</td></tr>'}</tbody></table></div></div>`}
-async function showNotifications(){const {data}=await sb.from('notifications').select('*').eq('user_id',state.user.id).order('created_at',{ascending:false}).limit(10);toast(data?.length?data[0].message:'No new notifications')}
-async function logout(){await sb.auth.signOut();state={user:null,profile:null,role:null,section:'dashboard',challenge:null,mode:'student'};login()}
-
-async function nodeAttendance(){
- const c=state.profile.college_id;
- const {data:students}=await sb.from('profiles').select('id,full_name,college_roll_number,university_registration_number').eq('role','student').eq('college_id',c).order('full_name');
- const {data:rows}=await sb.from('attendance').select('*,profiles(full_name,college_roll_number)').eq('profiles.college_id',c).order('attendance_date',{ascending:false}).limit(100);
- document.getElementById('main').innerHTML=head('Attendance','Record and review attendance for your assigned college')+
- '<div class="card"><b>Record Attendance</b><div class="form two-col" style="margin-top:12px"><div class="field"><label>Student *</label><select id="attStudent">'+(students||[]).map(x=>'<option value="'+x.id+'">'+esc(x.full_name)+' — '+esc(x.college_roll_number||x.university_registration_number||'')+'</option>').join('')+'</select></div><div class="field"><label>Date *</label><input id="attDate" type="date" value="'+new Date().toISOString().slice(0,10)+'"></div><div class="field"><label>Status</label><select id="attStatus"><option value="present">Present</option><option value="absent">Absent</option><option value="leave">Leave</option><option value="holiday">Holiday</option></select></div><div class="field"><label>Hours</label><input id="attHours" type="number" min="0" max="12" step="0.25" value="6"></div><div class="field full"><label>Remarks</label><input id="attRemarks"></div></div><button class="btn btn-primary" onclick="saveOfficerAttendance()">Save Attendance</button></div>'+
- '<div class="card" style="margin-top:16px"><div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Student</th><th>Status</th><th>Hours</th><th>Remarks</th></tr></thead><tbody>'+
- ((rows||[]).map(x=>'<tr><td>'+x.attendance_date+'</td><td>'+esc(x.profiles?.full_name||'')+'</td><td>'+esc(x.status)+'</td><td>'+x.hours+'</td><td>'+esc(x.remarks||'')+'</td></tr>').join('')||'<tr><td colspan="5" class="empty">No attendance records.</td></tr>')+
- '</tbody></table></div></div>';
-}
-async function saveOfficerAttendance(){
- try{
-  const student_id=document.getElementById('attStudent').value,attendance_date=document.getElementById('attDate').value,status=document.getElementById('attStatus').value,hours=Number(document.getElementById('attHours').value||0),remarks=document.getElementById('attRemarks').value.trim()||null;
-  if(!student_id||!attendance_date)throw Error('Student and date are required.');
-  if(hours<0||hours>12)throw Error('Hours must be between 0 and 12.');
-  const {data:i}=await sb.from('internships').select('id').eq('student_id',student_id).eq('status','active').maybeSingle();
-  if(!i)throw Error('This student does not have an active internship.');
-  const {data:existing}=await sb.from('attendance').select('id').eq('internship_id',i.id).eq('attendance_date',attendance_date).maybeSingle();
-  const payload={internship_id:i.id,student_id,attendance_date,status,hours,remarks};if(existing)payload.id=existing.id;
-  const {error}=await sb.from('attendance').upsert(payload);if(error)throw error;
-  toast('Attendance saved successfully');nodeAttendance();
- }catch(e){toast(e.message||'Unable to save attendance')}
-}
-async function nodeActivities(){
- const c=state.profile.college_id;
- const {data}=await sb.from('weekly_logs').select('*,profiles(full_name,college_roll_number)').eq('profiles.college_id',c).order('week_number',{ascending:false});
- document.getElementById('main').innerHTML=head('Weekly Activities','Review student weekly activity submissions')+
- '<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Week</th><th>Activities</th><th>Outcomes</th><th>Status</th><th>Action</th></tr></thead><tbody>'+
- ((data||[]).map(x=>'<tr><td>'+esc(x.profiles?.full_name||'')+'</td><td>'+x.week_number+'</td><td>'+esc(x.activities||'')+'</td><td>'+esc(x.learning_outcomes||'')+'</td><td>'+esc(x.status)+'</td><td><button class="btn btn-soft" onclick="reviewWeeklyOfficer(\''+x.id+'\')">Review</button></td></tr>').join('')||'<tr><td colspan="6" class="empty">No weekly submissions.</td></tr>')+
- '</tbody></table></div></div>';
-}
-async function reviewWeeklyOfficer(id){
- const feedback=prompt('Node Officer feedback:','')||null;
- const raw=prompt('Status: reviewed or returned','reviewed')||'reviewed';
- const status=['reviewed','returned'].includes(raw)?raw:'reviewed';
- const {error}=await sb.from('weekly_logs').update({status,mentor_feedback:feedback}).eq('id',id);
- if(error)toast(error.message);else{toast('Weekly activity review saved');nodeActivities()}
-}
-async function nodeDocuments(){
- const {data}=await sb.from('student_documents').select('*,profiles(full_name,college_name)').eq('profiles.college_id',state.profile.college_id).order('created_at',{ascending:false});
- document.getElementById('main').innerHTML=head('Documents','Student documents from your assigned college')+
- '<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Type</th><th>Title</th><th>Status</th><th>File</th></tr></thead><tbody>'+
- ((data||[]).map(x=>'<tr><td>'+esc(x.profiles?.full_name||'')+'</td><td>'+esc(x.document_type)+'</td><td>'+esc(x.document_title)+'</td><td>'+esc(x.verification_status)+'</td><td><button class="btn btn-soft" onclick="downloadDoc(\''+x.file_path+'\')">Open</button></td></tr>').join('')||'<tr><td colspan="5" class="empty">No documents.</td></tr>')+
- '</tbody></table></div></div>';
-}
-async function nodeProgress(){
- const {data}=await sb.from('internships').select('*,profiles(full_name,college_roll_number)').eq('profiles.college_id',state.profile.college_id).order('created_at',{ascending:false});
- const ids=(data||[]).map(x=>x.id);
- const {data:att}=ids.length?await sb.from('attendance').select('internship_id,hours').in('internship_id',ids):{data:[]};
- const {data:prog}=ids.length?await sb.from('training_progress').select('internship_id,status').in('internship_id',ids):{data:[]};
- const {data:subs}=ids.length?await sb.from('assignment_submissions').select('internship_id,status').in('internship_id',ids):{data:[]};
- const {data:projects}=ids.length?await sb.from('projects').select('internship_id,status,score').in('internship_id',ids):{data:[]};
- const rows=(data||[]).map(i=>{const hours=(att||[]).filter(x=>x.internship_id===i.id).reduce((a,x)=>a+Number(x.hours||0),0);const done=(prog||[]).filter(x=>x.internship_id===i.id&&x.status==='completed').length;const submitted=(subs||[]).filter(x=>x.internship_id===i.id&&['submitted','evaluated','approved'].includes(x.status)).length;const p=(projects||[]).find(x=>x.internship_id===i.id);return '<tr><td>'+esc(i.profiles?.full_name||'')+'</td><td>'+esc(i.profiles?.college_roll_number||'')+'</td><td>'+esc(i.domain)+'</td><td>'+hours.toFixed(1)+' / '+i.total_hours+'</td><td>'+done+'</td><td>'+submitted+'</td><td>'+esc(p?.status||'Pending')+'</td></tr>'}).join('');
- document.getElementById('main').innerHTML=head('Progress','Live progress of students in your assigned college')+'<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Roll</th><th>Sector</th><th>Hours</th><th>Training</th><th>Assignments</th><th>Project</th></tr></thead><tbody>'+ (rows||'<tr><td colspan="7" class="empty">No active internships.</td></tr>')+'</tbody></table></div></div>';
-}
+function localToday(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+async function saveTrainingLecture(){try{const sector_id=document.getElementById('tl_sector').value,lecture_date=document.getElementById('tl_date').value,title=document.getElementById('tl_title').value.trim(),sequence_no=Number(document.getElementById('tl_seq').value||1),duration_seconds=Math.round(Number(document.getElementById('tl_duration').value||0)*60),video_url=document.getElementById('tl_video').value.trim(),description=document.getElementById('tl_desc').value.trim()||null;if(!sector_id||!lecture_date||!title||!video_url||duration_seconds<60)throw Error('Sector, date, title, video URL and duration are required.');const {data:dup}=await sb.from('training_lectures').select('id').eq('sector_id',sector_id).eq('lecture_date',lecture_date).limit(1);if(dup&&dup.length)throw Error('A lecture is already assigned to this sector for this date.');const {error}=await sb.from('training_lectures').insert({sector_id,lecture_date,title,sequence_no,duration_seconds,video_url,description,is_active:true});if(error)throw error;toast('Lecture published successfully');training()}catch(e){toast(e.message||'Unable to publish lecture')}}
 async function studentTraining(){
  try{
   const {data:i,error:ie}=await sb.from('internships').select('*').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle();
