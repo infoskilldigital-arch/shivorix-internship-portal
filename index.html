@@ -473,7 +473,7 @@ function youtubeVideoId(url){
   if(u.hostname==='youtu.be')return u.pathname.slice(1).split('/')[0]||null;
   if(u.hostname.includes('youtube.com')){
    if(u.pathname==='/watch')return u.searchParams.get('v');
-   const m=u.pathname.match(/\\/(embed|shorts|live)\\/([^/?#]+)/);if(m)return m[2];
+   const parts=u.pathname.split('/').filter(Boolean);if(['embed','shorts','live'].includes(parts[0]))return parts[1]||null;
   }
  }catch(_e){}
  return null;
