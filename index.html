@@ -234,7 +234,17 @@ function filterAssignmentDashboard(){
  }).join('')||'<tr><td colspan="7" class="empty">No matching submissions.</td></tr>';
 }
 async function createAssignment(){const title=document.getElementById('atitle').value.trim();const sector=document.getElementById('adomain').value;if(!title)return toast('Assignment title is required.');if(!sector)return toast('Select an internship sector.');const {error}=await sb.from('assignments').insert({title,domain:sector,description:document.getElementById('adesc').value.trim()||null,due_date:document.getElementById('adue').value||null,is_active:true});if(error)toast(error.message);else{toast('Assignment created');assignments()}}
-async function submitAssignment(id){const url=document.getElementById('su_'+id).value.trim();if(!url)return toast('Add a submission URL.');const {data:i}=await sb.from('internships').select('id').eq('student_id',state.user.id).eq('status','active').limit(1).maybeSingle();if(!i)return toast('Assignment submission unlocks after internship activation.');const {error}=await sb.from('assignment_submissions').upsert({assignment_id:id,internship_id:i.id,student_id:state.user.id,submission_url:url,notes:document.getElementById('sn_'+id).value.trim(),submitted_at:new Date().toISOString(),status:'submitted'},{onConflict:'assignment_id,student_id'});if(error)toast(error.message);else{toast('Assignment submitted');assignments()}}
+async function submitAssignment(id){
+ const url=document.getElementById('su_'+id).value.trim();
+ if(!url)return toast('Add a submission URL.');
+ let parsed;
+ try{parsed=new URL(url)}catch(e){return toast('Enter a valid submission link starting with https:// or http://.')}
+ if(parsed.protocol!=='https:'&&parsed.protocol!=='http:')return toast('Enter a valid submission link starting with https:// or http://.');
+ const {data:i}=await sb.from('internships').select('id').eq('student_id',state.user.id).eq('status','active').limit(1).maybeSingle();
+ if(!i)return toast('Assignment submission unlocks after internship activation.');
+ const {error}=await sb.from('assignment_submissions').upsert({assignment_id:id,internship_id:i.id,student_id:state.user.id,submission_url:parsed.href,notes:document.getElementById('sn_'+id).value.trim(),submitted_at:new Date().toISOString(),status:'submitted'},{onConflict:'assignment_id,student_id'});
+ if(error)toast(error.message);else{toast('Assignment submitted');assignments()}
+}
 async function deleteAssignment(id){
  if(!id)return;
  if(!confirm('Delete this assignment? Any student submissions for this assignment will also be permanently deleted.'))return;
