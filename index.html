@@ -242,8 +242,11 @@ async function submitAssignment(id){
  if(parsed.protocol!=='https:'&&parsed.protocol!=='http:')return toast('Enter a valid submission link starting with https:// or http://.');
  const {data:i}=await sb.from('internships').select('id').eq('student_id',state.user.id).eq('status','active').limit(1).maybeSingle();
  if(!i)return toast('Assignment submission unlocks after internship activation.');
- const {error}=await sb.from('assignment_submissions').upsert({assignment_id:id,internship_id:i.id,student_id:state.user.id,submission_url:parsed.href,notes:document.getElementById('sn_'+id).value.trim(),submitted_at:new Date().toISOString(),status:'submitted'},{onConflict:'assignment_id,student_id'});
- if(error)toast(error.message);else{toast('Assignment submitted');assignments()}
+ const {data:existing,error:checkError}=await sb.from('assignment_submissions').select('id,status').eq('assignment_id',id).eq('student_id',state.user.id).maybeSingle();
+ if(checkError){toast(checkError.message);return;}
+ if(existing){toast('This assignment has already been submitted. One submission per assignment is allowed.');return;}
+ const {error}=await sb.from('assignment_submissions').insert({assignment_id:id,internship_id:i.id,student_id:state.user.id,submission_url:parsed.href,notes:document.getElementById('sn_'+id).value.trim(),submitted_at:new Date().toISOString(),status:'submitted'});
+ if(error)toast(error.message);else{toast('Assignment submitted successfully. You cannot submit it again.');assignments()}
 }
 async function deleteAssignment(id){
  if(!id)return;
