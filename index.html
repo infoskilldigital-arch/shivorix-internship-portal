@@ -233,8 +233,80 @@ async function submitFinalTest(auto){
 async function project(){if(state.role==='student'){const {data:i}=await sb.from('internships').select('id').eq('student_id',state.user.id).in('status',['active','completed']).limit(1).maybeSingle();const {data:p}=i?await sb.from('projects').select('*').eq('internship_id',i.id).maybeSingle():{data:null};document.getElementById('main').innerHTML=head('Project & Report','Submit your internship project and final report')+'<div class="card">'+(i?'<div class="form"><div class="field"><label>Project Title *</label><input id="ptitle" value="'+esc(p?.title||'')+'"></div><div class="field"><label>Description / Abstract</label><textarea id="pdesc" rows="6">'+esc(p?.description||'')+'</textarea></div><div class="field"><label>Project URL</label><input id="purl" value="'+esc(p?.project_url||'')+'"></div><div class="field"><label>Report File URL</label><input id="pfile" value="'+esc(p?.file_url||'')+'"></div><button class="btn btn-primary" onclick="saveProject(\''+i.id+'\')">Submit Project / Report</button>'+(p?'<div class="success">Status: '+esc(p.status||'draft')+(p.score!=null?' · Score: '+p.score:'')+'</div>':'')+'</div>':'<div class="empty">Project submission unlocks after internship activation.</div>')+'</div>'}else{const {data}=await sb.from('projects').select('*,profiles(full_name,college_name)').order('submitted_at',{ascending:false});document.getElementById('main').innerHTML=head('Project & Report Review','Review project submissions')+'<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Title</th><th>Status</th><th>Score</th><th>Action</th></tr></thead><tbody>'+(data||[]).map(x=>'<tr><td>'+esc(x.profiles?.full_name)+'</td><td>'+esc(x.title)+'</td><td>'+esc(x.status||'draft')+'</td><td>'+esc(x.score??'—')+'</td><td><button class="btn btn-soft" onclick="reviewProject(\''+x.id+'\')">Review</button></td></tr>').join('')||'<tr><td colspan="5" class="empty">No projects.</td></tr>'+'</tbody></table></div></div>'}}
 async function saveProject(internshipId){const payload={internship_id:internshipId,student_id:state.user.id,title:document.getElementById('ptitle').value.trim(),description:document.getElementById('pdesc').value.trim(),project_url:document.getElementById('purl').value.trim(),file_url:document.getElementById('pfile').value.trim(),submitted_at:new Date().toISOString(),status:'submitted'};if(!payload.title)return toast('Project title is required.');const {error}=await sb.from('projects').upsert(payload,{onConflict:'internship_id'});if(error)toast(error.message);else{toast('Project submitted');project()}}
 async function reviewProject(id){const score=prompt('Score (0-100):','80');if(score===null)return;const status=prompt('Status: approved / returned','approved')||'approved';const feedback=prompt('Feedback:','')||null;const {error}=await sb.from('projects').update({score:Number(score),status,feedback}).eq('id',id);if(error)toast(error.message);else{toast('Project updated');project()}}
-async function activities(){if(state.role==='student'){const {data}=await sb.from('weekly_logs').select('*').eq('student_id',state.user.id).order('week_number');const next=((data||[]).reduce((m,x)=>Math.max(m,Number(x.week_number||0)),0)+1);document.getElementById('main').innerHTML=head('Weekly Activities','Record practical work and learning outcomes')+'<div class="card"><div class="form two-col"><div class="field"><label>Week</label><input id="wk" type="number" min="1" value="'+next+'"></div><div class="field"><label>Period End</label><input id="we" type="date"></div><div class="field"><label>Activities</label><textarea id="wa" rows="4"></textarea></div><div class="field"><label>Learning Outcomes</label><textarea id="wo" rows="4"></textarea></div></div><button class="btn btn-primary" onclick="saveWeekly()">Save Weekly Log</button></div><div class="grid" style="margin-top:16px">'+(data||[]).map(x=>'<div class="card"><b>Week '+x.week_number+'</b><p>'+esc(x.activities||'')+'</p><small class="muted">'+esc(x.learning_outcomes||'')+'</small><div><span class="badge">'+esc(x.status||'draft')+'</span></div></div>').join('')+'</div>'}else{const {data}=await sb.from('weekly_logs').select('*,profiles(full_name,college_name)').order('week_number');document.getElementById('main').innerHTML=head('Weekly Activities','Student activity records from your permitted college')+'<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Week</th><th>Activities</th><th>Outcome</th><th>Status</th></tr></thead><tbody>'+(data||[]).map(x=>'<tr><td>'+esc(x.profiles?.full_name)+'</td><td>'+x.week_number+'</td><td>'+esc(x.activities||'')+'</td><td>'+esc(x.learning_outcomes||'')+'</td><td>'+esc(x.status||'draft')+'</td></tr>').join('')||'<tr><td colspan="5" class="empty">No weekly logs.</td></tr>'+'</tbody></table></div></div>'}}
-async function saveWeekly(){const {data:i}=await sb.from('internships').select('id,start_date').eq('student_id',state.user.id).eq('status','active').limit(1).maybeSingle();if(!i)return toast('Activate your internship first.');const {error}=await sb.from('weekly_logs').upsert({internship_id:i.id,student_id:state.user.id,week_number:Number(document.getElementById('wk').value),period_start:i.start_date||new Date().toISOString().slice(0,10),period_end:document.getElementById('we').value||null,activities:document.getElementById('wa').value.trim(),learning_outcomes:document.getElementById('wo').value.trim(),status:'submitted',submitted_at:new Date().toISOString()},{onConflict:'internship_id,week_number'});if(error)toast(error.message);else{toast('Weekly activity saved');activities()}}
+async function activities(){
+ if(state.role==='student'){
+  const {data:i,error:ie}=await sb.from('internships').select('id,start_date,end_date,total_hours,status').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle();
+  if(ie)throw ie;
+  if(!i){document.getElementById('main').innerHTML=head('Activities / Log Book','Maintain your daily internship work record')+'<div class="card empty">Your internship must be activated before you can add Log Book entries.</div>';return;}
+  const {data:logs,error:le}=await sb.from('internship_activity_logs').select('*').eq('internship_id',i.id).order('activity_date',{ascending:false}).order('created_at',{ascending:false});
+  if(le)throw le;
+  const rows=logs||[],total=rows.reduce((s,x)=>s+Number(x.hours_worked||0),0);
+  const reviewed=rows.filter(x=>x.status==='reviewed').length,returned=rows.filter(x=>x.status==='returned').length;
+  document.getElementById('main').innerHTML=head('Activities / Log Book','Record what you actually worked on during your internship')+
+   '<div class="grid three">'+
+    '<div class="card"><small class="muted">Log Book Entries</small><h2 style="margin:6px 0">'+rows.length+'</h2></div>'+
+    '<div class="card"><small class="muted">Logged Work Hours</small><h2 style="margin:6px 0">'+total.toFixed(2)+' hrs</h2></div>'+
+    '<div class="card"><small class="muted">Reviewed / Returned</small><h2 style="margin:6px 0">'+reviewed+' / '+returned+'</h2></div>'+
+   '</div>'+
+   '<div class="card" style="margin-top:16px"><div class="alert">Daily Log Book records your work and learning. Attendance remains a separate record. Maximum Log Book hours accepted per date: 4 hours.</div>'+
+   '<h3 style="margin:18px 0 10px">Add Daily Activity</h3>'+
+   '<div class="form two-col">'+
+    '<div class="field"><label>Date *</label><input id="al_date" type="date" value="'+localToday()+'" max="'+localToday()+'"></div>'+
+    '<div class="field"><label>Hours Worked *</label><input id="al_hours" type="number" min="0.25" max="4" step="0.25" value="4"></div>'+
+    '<div class="field full"><label>Activity / Work Done *</label><input id="al_activity" placeholder="e.g. Developed homepage hero section"></div>'+
+    '<div class="field full"><label>Description</label><textarea id="al_description" rows="3" placeholder="Describe what you worked on..."></textarea></div>'+
+    '<div class="field full"><label>Learning / Outcome</label><textarea id="al_learning" rows="3" placeholder="What did you learn or what was the outcome?"></textarea></div>'+
+   '</div><button class="btn btn-primary" onclick="saveActivityLog()">Save Activity</button></div>'+
+   '<div class="card" style="margin-top:16px"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><div><b>My Internship Log Book</b><div class="muted">Newest activities appear first.</div></div></div>'+
+   '<div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>Date</th><th>Activity</th><th>Learning / Outcome</th><th>Hours</th><th>Status</th><th>Mentor Feedback</th></tr></thead><tbody>'+
+   (rows.map(x=>'<tr><td>'+esc(x.activity_date||'—')+'</td><td><b>'+esc(x.activity||'—')+'</b>'+(x.description?'<br><small class="muted">'+esc(x.description)+'</small>':'')+'</td><td>'+esc(x.learning_outcome||'—')+'</td><td>'+Number(x.hours_worked||0).toFixed(2)+'</td><td><span class="badge '+(x.status==='reviewed'?'green':x.status==='returned'?'orange':'')+'">'+esc(x.status||'submitted')+'</span></td><td>'+esc(x.mentor_feedback||'—')+'</td></tr>').join('')||'<tr><td colspan="6" class="empty">No activities recorded yet.</td></tr>')+
+   '</tbody></table></div></div>';
+  return;
+ }
+ const {data,error}=await sb.from('internship_activity_logs').select('*,profiles(full_name,college_name,university_registration_number,college_roll_number)').order('activity_date',{ascending:false}).order('created_at',{ascending:false});
+ if(error)throw error;
+ document.getElementById('main').innerHTML=head('Activities / Log Book','Review daily internship work records from your permitted students')+
+  '<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Date</th><th>Activity</th><th>Hours</th><th>Outcome</th><th>Status</th><th>Action</th></tr></thead><tbody>'+
+  ((data||[]).map(x=>'<tr><td><b>'+esc(x.profiles?.full_name||'—')+'</b><br><small class="muted">'+esc(x.profiles?.college_roll_number||x.profiles?.university_registration_number||'')+'</small></td><td>'+esc(x.activity_date||'—')+'</td><td><b>'+esc(x.activity||'—')+'</b>'+(x.description?'<br><small class="muted">'+esc(x.description)+'</small>':'')+'</td><td>'+Number(x.hours_worked||0).toFixed(2)+'</td><td>'+esc(x.learning_outcome||'—')+'</td><td><span class="badge '+(x.status==='reviewed'?'green':x.status==='returned'?'orange':'')+'">'+esc(x.status||'submitted')+'</span></td><td>'+(x.status==='submitted'||x.status==='returned'?'<button class="btn btn-primary" onclick="reviewActivityLog(\\''+x.id+'\\',\\'reviewed\\')">Review</button> <button class="btn btn-soft" onclick="reviewActivityLog(\\''+x.id+'\\',\\'returned\\')">Return</button>':'—')+'</td></tr>').join('')||'<tr><td colspan="7" class="empty">No internship activities found.</td></tr>')+
+  '</tbody></table></div></div>';
+}
+async function saveActivityLog(){
+ try{
+  if(state.role!=='student')throw Error('Only students can submit Log Book activities.');
+  const date=document.getElementById('al_date')?.value;
+  const activity=document.getElementById('al_activity')?.value.trim();
+  const description=document.getElementById('al_description')?.value.trim()||null;
+  const learning=document.getElementById('al_learning')?.value.trim()||null;
+  const hours=Number(document.getElementById('al_hours')?.value||0);
+  if(!date||!activity)throw Error('Date and Activity / Work Done are required.');
+  if(!hours||hours<0.25||hours>4)throw Error('Hours Worked must be between 0.25 and 4 hours.');
+  const today=localToday();
+  if(date>today)throw Error('Future dates cannot be added to the Log Book.');
+  const {data:i,error:ie}=await sb.from('internships').select('id,start_date,end_date,status').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle();
+  if(ie)throw ie;
+  if(!i)throw Error('Activate your internship first.');
+  if(i.start_date&&date<i.start_date)throw Error('Activity date cannot be before your internship start date.');
+  if(i.end_date&&date>i.end_date)throw Error('Activity date cannot be after your internship end date.');
+  const {data:existing,error:ee}=await sb.from('internship_activity_logs').select('hours_worked').eq('internship_id',i.id).eq('activity_date',date);
+  if(ee)throw ee;
+  const used=(existing||[]).reduce((s,x)=>s+Number(x.hours_worked||0),0);
+  if(used+hours>4.0001)throw Error('This date already has '+used.toFixed(2)+' logged hours. Maximum is 4 hours per date.');
+  const {error}=await sb.from('internship_activity_logs').insert({internship_id:i.id,student_id:state.user.id,activity_date:date,activity,description,learning_outcome:learning,hours_worked:Number(hours.toFixed(2)),status:'submitted'});
+  if(error)throw error;
+  toast('Activity added to your Log Book');
+  activities();
+ }catch(e){toast(e.message||'Unable to save activity');console.error('Activity log error',e)}
+}
+async function reviewActivityLog(id,status){
+ try{
+  if(state.role!=='node_officer'&&state.role!=='admin')throw Error('You are not allowed to review activities.');
+  const feedback=prompt(status==='reviewed'?'Mentor / reviewer feedback (optional):':'What needs correction? (optional):','')||null;
+  const {error}=await sb.from('internship_activity_logs').update({status,mentor_feedback:feedback,reviewed_by:state.user.id,reviewed_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',id);
+  if(error)throw error;
+  toast(status==='reviewed'?'Activity reviewed successfully.':'Activity returned to student for correction.');
+  activities();
+ }catch(e){toast(e.message||'Unable to review activity');console.error('Activity review error',e)}
+}
 async function attendance(){
  try{
   await finalizeOpenAttendance();
