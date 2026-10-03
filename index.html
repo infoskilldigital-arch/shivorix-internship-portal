@@ -171,39 +171,49 @@ async function waivePayment(id){if(!confirm('Mark this fee as waived and activat
 async function payment(){const {data}=await sb.from('payments').select('*,internship_applications(application_number,status)').eq('student_id',state.user.id).order('created_at',{ascending:false});document.getElementById('main').innerHTML=head('Payment','Payment is available only after Node Officer approval')+'<div class="card">'+((data||[]).length?'<div class="table-wrap"><table class="table"><thead><tr><th>Application</th><th>Amount</th><th>Provider</th><th>Status</th><th>Action</th></tr></thead><tbody>'+(data||[]).map(x=>'<tr><td>'+esc(x.internship_applications?.application_number||'')+'</td><td>₹'+Number(x.amount||0).toLocaleString('en-IN')+'</td><td>'+esc(x.provider||'—')+'</td><td>'+esc(x.status)+'</td><td>'+(x.status==='pending'&&x.internship_applications?.status==='payment_pending'?'<button class="btn btn-primary" onclick="startPayment(\''+x.application_id+'\')">Pay Now</button>':'—')+'</td></tr>').join('')+'</tbody></table></div>':'<div class="empty">No payment is currently due.</div>')+'</div>'}
 async function startPayment(applicationId){const {data,error}=await sb.functions.invoke('payment-api',{body:{action:'create_order',application_id:applicationId}});if(error||data?.error)return toast(error?.message||data?.error||'Unable to start payment');if(!window.Razorpay)return toast('Payment checkout library is unavailable.');const rzp=new Razorpay({key:data.key_id,amount:Math.round(Number(data.amount)*100),currency:data.currency,order_id:data.order_id,name:'SHIVORIX PVT. LTD.',description:'Internship Fee',prefill:{name:data.name,email:data.email},theme:{color:'#6d28d9'},handler:async function(resp){const v=await sb.functions.invoke('payment-api',{body:{action:'verify',payment_id:data.payment_id,application_id:applicationId,razorpay_order_id:resp.razorpay_order_id,razorpay_payment_id:resp.razorpay_payment_id,razorpay_signature:resp.razorpay_signature}});if(v.error||v.data?.error)toast(v.error?.message||v.data?.error||'Payment verification failed');else{toast('Payment verified. Internship activated.');go('internship')}}});rzp.open()}
 async function assignments(){
- if(state.role==='admin'){
-  const {data:as,error:ae}=await sb.from('assignments').select('*').order('created_at',{ascending:false});
-  const {data:subs,error:se}=await sb.from('assignment_submissions').select('*,assignments(title,domain),student_profile:profiles!assignment_submissions_student_id_fkey(full_name,college_name,university_registration_number,college_roll_number)').order('submitted_at',{ascending:false});
-  const {data:sectors}=await sb.from('internship_sectors').select('id,name').eq('is_active',true).order('name');
-  if(ae){toast(ae.message)} if(se){toast(se.message)}
-  window.__assignmentReviewSubs=subs||[];
-  const totalAssignments=(as||[]).length,totalSubs=(subs||[]).length;
-  const pending=(subs||[]).filter(x=>x.status!=='evaluated').length;
-  const evaluated=(subs||[]).filter(x=>x.status==='evaluated').length;
-  const scored=(subs||[]).filter(x=>x.score!=null);
-  const avg=scored.length?(scored.reduce((sum,x)=>sum+Number(x.score||0),0)/scored.length).toFixed(1):'—';
-  document.getElementById('main').innerHTML=head('Assignment Checking Dashboard','Monitor, check and evaluate student assignments')+
-  '<div class="grid stats" style="margin-bottom:16px">'+
-  '<div class="card stat"><div class="label">Total Assignments</div><div class="value">'+totalAssignments+'</div></div>'+
-  '<div class="card stat"><div class="label">Total Submissions</div><div class="value">'+totalSubs+'</div></div>'+
-  '<div class="card stat"><div class="label">Pending Checking</div><div class="value">'+pending+'</div></div>'+
-  '<div class="card stat"><div class="label">Evaluated</div><div class="value">'+evaluated+'</div></div>'+
-  '<div class="card stat"><div class="label">Average Score</div><div class="value">'+avg+'</div></div>'+
-  '</div>'+
-  '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><b>Student Assignment Checking</b><div class="muted" style="margin-top:4px">Open submitted work, check it and record score + feedback.</div></div><div class="form" style="display:flex;gap:8px;flex-wrap:wrap"><input id="assignmentCheckSearch" placeholder="Search student / college / assignment" oninput="filterAssignmentDashboard()" style="min-width:250px"><select id="assignmentCheckStatus" onchange="filterAssignmentDashboard()"><option value="">All Status</option><option value="submitted">Pending Checking</option><option value="evaluated">Evaluated</option></select></div></div>'+
-  '<div class="table-wrap" style="margin-top:14px"><table class="table"><thead><tr><th>Student</th><th>College</th><th>Assignment</th><th>Submitted</th><th>Status</th><th>Score</th><th>Action</th></tr></thead><tbody id="assignmentCheckRows"></tbody></table></div></div>'+
-  '<div class="card" style="margin-top:16px"><b>Create Assignment</b><div class="form two-col" style="margin-top:12px"><div class="field"><label>Title *</label><input id="atitle"></div><div class="field"><label>Sector *</label><select id="adomain"><option value="">Select internship sector</option>'+((sectors||[]).map(s=>'<option value="'+esc(s.name)+'">'+esc(s.name)+'</option>').join(''))+'</select></div><div class="field"><label>Description</label><textarea id="adesc" rows="3"></textarea></div><div class="field"><label>Due Date</label><input id="adue" type="date"></div></div><button class="btn btn-primary" style="margin-top:12px" onclick="createAssignment()">Create Assignment</button></div>'+
-  '<div class="card" style="margin-top:16px"><b>Assignments</b><div class="table-wrap" style="margin-top:10px"><table class="table"><thead><tr><th>Title</th><th>Domain</th><th>Due</th><th>Status</th><th>Action</th></tr></thead><tbody>'+(as||[]).map(x=>'<tr><td>'+esc(x.title)+'</td><td>'+esc(x.domain||'')+'</td><td>'+esc(x.due_date||'—')+'</td><td>'+esc(x.is_active?'Active':'Inactive')+'</td><td><button class="btn btn-danger" onclick="deleteAssignment(\\''+x.id+'\\')">Delete</button></td></tr>').join('')||'<tr><td colspan="5" class="empty">No assignments.</td></tr>'+'</tbody></table></div></div>';
-  filterAssignmentDashboard();
-  return;
- }
+ if(state.role==='admin'){ return assignmentAdminDashboard(); }
  if(state.role==='student'){
   const {data:as}=await sb.from('assignments').select('*').eq('is_active',true).order('due_date');const {data:subs}=await sb.from('assignment_submissions').select('*').eq('student_id',state.user.id);const sm=new Map((subs||[]).map(x=>[x.assignment_id,x]));
-  document.getElementById('main').innerHTML=head('Assignments','Practical tasks and submission tracking')+'<div class="grid two">'+(as||[]).map(x=>{const z=sm.get(x.id);return '<div class="card"><b>'+esc(x.title)+'</b><p class="muted">'+esc(x.description||'')+'</p><span class="badge">'+esc(x.domain||'General')+'</span>'+(x.due_date?'<span class="badge orange">Due '+x.due_date+'</span>':'')+'<div class="form" style="margin-top:12px"><div class="field"><label>Submission URL</label><input id="su_'+x.id+'" value="'+esc(z?.submission_url||'')+'"></div><div class="field"><label>Notes</label><textarea id="sn_'+x.id+'" rows="3">'+esc(z?.notes||'')+'</textarea></div><button class="btn btn-primary" onclick="submitAssignment(\\''+x.id+'\\')">'+(z?'Update Submission':'Submit Assignment')+'</button>'+(z?'<div class="success">Status: '+esc(z.status||'submitted')+(z.score!=null?' · Score: '+z.score:'')+(z.feedback?'<br>Feedback: '+esc(z.feedback):'')+'</div>':'')+'</div></div>'}).join('')||'<div class="card empty">No active assignments.</div>'+'</div>';
+  document.getElementById('main').innerHTML=head('Assignments','Practical tasks and submission tracking')+'<div class="grid two">'+(as||[]).map(x=>{const z=sm.get(x.id);return '<div class="card"><b>'+esc(x.title)+'</b><p class="muted">'+esc(x.description||'')+'</p><span class="badge">'+esc(x.domain||'General')+'</span>'+(x.due_date?'<span class="badge orange">Due '+x.due_date+'</span>':'')+'<div class="form" style="margin-top:12px"><div class="field"><label>Submission URL</label><input id="su_'+x.id+'" value="'+esc(z?.submission_url||'')+'"></div><div class="field"><label>Notes</label><textarea id="sn_'+x.id+'" rows="3">'+esc(z?.notes||'')+'</textarea></div><button class="btn btn-primary" onclick="submitAssignment(\''+x.id+'\')">'+(z?'Update Submission':'Submit Assignment')+'</button>'+(z?'<div class="success">Status: '+esc(z.status||'submitted')+(z.score!=null?' · Score: '+z.score:'')+(z.feedback?'<br>Feedback: '+esc(z.feedback):'')+'</div>':'')+'</div></div>'}).join('')||'<div class="card empty">No active assignments.</div>'+'</div>';
   return;
  }
  const {data}=await sb.from('assignment_submissions').select('*,assignments(title),student_profile:profiles!assignment_submissions_student_id_fkey(full_name,college_name,university_registration_number,college_roll_number)').order('submitted_at',{ascending:false});
- document.getElementById('main').innerHTML=head('Assignments','Student submissions from your permitted scope')+'<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Assignment</th><th>Status</th><th>Score</th><th>Action</th></tr></thead><tbody>'+(data||[]).map(x=>'<tr><td>'+esc(x.student_profile?.full_name)+'</td><td>'+esc(x.assignments?.title)+'</td><td>'+esc(x.status)+'</td><td>'+esc(x.score??'—')+'</td><td><button class="btn btn-soft" onclick="reviewAssignment(\\''+x.id+'\\')">Review</button></td></tr>').join('')||'<tr><td colspan="5" class="empty">No submissions.</td></tr>'+'</tbody></table></div></div>';
+ document.getElementById('main').innerHTML=head('Assignments','Student submissions from your permitted scope')+'<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Assignment</th><th>Status</th><th>Score</th><th>Action</th></tr></thead><tbody>'+(data||[]).map(x=>'<tr><td>'+esc(x.student_profile?.full_name)+'</td><td>'+esc(x.assignments?.title)+'</td><td>'+esc(x.status)+'</td><td>'+esc(x.score??'—')+'</td><td><button class="btn btn-soft" onclick="reviewAssignment(\''+x.id+'\')">Review</button></td></tr>').join('')||'<tr><td colspan="5" class="empty">No submissions.</td></tr>'+'</tbody></table></div></div>';
+}
+async function assignmentAdminDashboard(){
+ const {data:as,error:ae}=await sb.from('assignments').select('*').order('created_at',{ascending:false});
+ const {data:subs,error:se}=await sb.from('assignment_submissions').select('*,assignments(title,domain),student_profile:profiles!assignment_submissions_student_id_fkey(full_name,college_name,university_registration_number,college_roll_number)').order('submitted_at',{ascending:false});
+ const {data:sectors}=await sb.from('internship_sectors').select('id,name').eq('is_active',true).order('name');
+ if(ae){toast(ae.message);return}
+ if(se){toast(se.message);return}
+ window.__assignmentReviewSubs=subs||[];
+ const totalAssignments=(as||[]).length;
+ const totalSubs=(subs||[]).length;
+ const pending=(subs||[]).filter(x=>x.status!=='evaluated').length;
+ const evaluated=(subs||[]).filter(x=>x.status==='evaluated').length;
+ const scored=(subs||[]).filter(x=>x.score!=null);
+ const avg=scored.length?(scored.reduce((sum,x)=>sum+Number(x.score||0),0)/scored.length).toFixed(1):'—';
+ const sectorOptions=(sectors||[]).map(s=>'<option value="'+esc(s.name)+'">'+esc(s.name)+'</option>').join('');
+ const assignmentRows=(as||[]).map(x=>'<tr><td>'+esc(x.title)+'</td><td>'+esc(x.domain||'')+'</td><td>'+esc(x.due_date||'—')+'</td><td>'+esc(x.is_active?'Active':'Inactive')+'</td><td><button class="btn btn-danger" data-delete-assignment="'+esc(x.id)+'">Delete</button></td></tr>').join('');
+ document.getElementById('main').innerHTML=
+   head('Assignment Checking Dashboard','Monitor, check and evaluate student assignments')+
+   '<div class="grid stats" style="margin-bottom:16px">'+
+   '<div class="card stat"><div class="label">Total Assignments</div><div class="value">'+totalAssignments+'</div></div>'+
+   '<div class="card stat"><div class="label">Total Submissions</div><div class="value">'+totalSubs+'</div></div>'+
+   '<div class="card stat"><div class="label">Pending Checking</div><div class="value">'+pending+'</div></div>'+
+   '<div class="card stat"><div class="label">Evaluated</div><div class="value">'+evaluated+'</div></div>'+
+   '<div class="card stat"><div class="label">Average Score</div><div class="value">'+avg+'</div></div>'+
+   '</div>'+
+   '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">'+
+   '<div><b>Student Assignment Checking</b><div class="muted" style="margin-top:4px">Open submitted work, check it and record score + feedback.</div></div>'+
+   '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="assignmentCheckSearch" placeholder="Search student / college / assignment" style="min-width:250px"><select id="assignmentCheckStatus"><option value="">All Status</option><option value="submitted">Pending Checking</option><option value="evaluated">Evaluated</option></select></div></div>'+
+   '<div class="table-wrap" style="margin-top:14px"><table class="table"><thead><tr><th>Student</th><th>College</th><th>Assignment</th><th>Submitted</th><th>Status</th><th>Score</th><th>Action</th></tr></thead><tbody id="assignmentCheckRows"></tbody></table></div></div>'+
+   '<div class="card" style="margin-top:16px"><b>Create Assignment</b><div class="form two-col" style="margin-top:12px"><div class="field"><label>Title *</label><input id="atitle"></div><div class="field"><label>Sector *</label><select id="adomain"><option value="">Select internship sector</option>'+sectorOptions+'</select></div><div class="field"><label>Description</label><textarea id="adesc" rows="3"></textarea></div><div class="field"><label>Due Date</label><input id="adue" type="date"></div></div><button class="btn btn-primary" style="margin-top:12px" onclick="createAssignment()">Create Assignment</button></div>'+
+   '<div class="card" style="margin-top:16px"><b>Assignments</b><div class="table-wrap" style="margin-top:10px"><table class="table"><thead><tr><th>Title</th><th>Domain</th><th>Due</th><th>Status</th><th>Action</th></tr></thead><tbody>'+assignmentRows+(assignmentRows?'':'<tr><td colspan="5" class="empty">No assignments.</td></tr>')+'</tbody></table></div></div>';
+ document.getElementById('assignmentCheckSearch').addEventListener('input',filterAssignmentDashboard);
+ document.getElementById('assignmentCheckStatus').addEventListener('change',filterAssignmentDashboard);
+ document.querySelectorAll('[data-delete-assignment]').forEach(btn=>btn.addEventListener('click',()=>deleteAssignment(btn.getAttribute('data-delete-assignment'))));
+ filterAssignmentDashboard();
 }
 function filterAssignmentDashboard(){
  const q=(document.getElementById('assignmentCheckSearch')?.value||'').trim().toLowerCase();
@@ -220,7 +230,7 @@ function filterAssignmentDashboard(){
   const statusText=x.status==='evaluated'?'Evaluated':'Pending';
   const badge=x.status==='evaluated'?'green':'orange';
   const submitted=x.submitted_at?new Date(x.submitted_at).toLocaleDateString('en-IN'):'—';
-  return '<tr><td>'+esc(p.full_name||'—')+'</td><td>'+esc(p.college_name||'—')+'</td><td>'+esc(a.title||'—')+'</td><td>'+esc(submitted)+'</td><td><span class="badge '+badge+'">'+statusText+'</span></td><td>'+esc(x.score??'—')+'</td><td><button class="btn btn-soft" onclick="reviewAssignment(\\''+x.id+'\\')">Check Assignment</button></td></tr>';
+  return '<tr><td>'+esc(p.full_name||'—')+'</td><td>'+esc(p.college_name||'—')+'</td><td>'+esc(a.title||'—')+'</td><td>'+esc(submitted)+'</td><td><span class="badge '+badge+'">'+statusText+'</span></td><td>'+esc(x.score??'—')+'</td><td><button class="btn btn-soft" onclick="reviewAssignment(\''+x.id+'\')">Check Assignment</button></td></tr>';
  }).join('')||'<tr><td colspan="7" class="empty">No matching submissions.</td></tr>';
 }
 async function createAssignment(){const title=document.getElementById('atitle').value.trim();const sector=document.getElementById('adomain').value;if(!title)return toast('Assignment title is required.');if(!sector)return toast('Select an internship sector.');const {error}=await sb.from('assignments').insert({title,domain:sector,description:document.getElementById('adesc').value.trim()||null,due_date:document.getElementById('adue').value||null,is_active:true});if(error)toast(error.message);else{toast('Assignment created');assignments()}}
