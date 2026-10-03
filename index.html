@@ -556,7 +556,7 @@ async function studentTraining(){
     video.addEventListener('pause',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
     video.addEventListener('ended',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
    }
-  } }
+  }
  }catch(e){document.getElementById('main').innerHTML=head('Online Training','Verified lecture-based learning workspace')+'<div class="card alert">'+esc(e.message||'Unable to load training.')+'</div>'}
 }
 async function sendLectureHeartbeat(internshipId,lectureId,video){
