@@ -467,6 +467,58 @@ async function training(){
 }
 function localToday(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 async function saveTrainingLecture(){try{const sector_id=document.getElementById('tl_sector').value,lecture_date=document.getElementById('tl_date').value,title=document.getElementById('tl_title').value.trim(),sequence_no=Number(document.getElementById('tl_seq').value||1),duration_seconds=Math.round(Number(document.getElementById('tl_duration').value||0)*60),video_url=document.getElementById('tl_video').value.trim(),description=document.getElementById('tl_desc').value.trim()||null;if(!sector_id||!lecture_date||!title||!video_url||duration_seconds<60)throw Error('Sector, date, title, video URL and duration are required.');const {data:dup}=await sb.from('training_lectures').select('id').eq('sector_id',sector_id).eq('lecture_date',lecture_date).limit(1);if(dup&&dup.length)throw Error('A lecture is already assigned to this sector for this date.');const {error}=await sb.from('training_lectures').insert({sector_id,lecture_date,title,sequence_no,duration_seconds,video_url,description,is_active:true});if(error)throw error;toast('Lecture published successfully');training()}catch(e){toast(e.message||'Unable to publish lecture')}}
+function youtubeVideoId(url){
+ try{
+  const u=new URL(String(url||''));
+  if(u.hostname==='youtu.be')return u.pathname.slice(1).split('/')[0]||null;
+  if(u.hostname.includes('youtube.com')){
+   if(u.pathname==='/watch')return u.searchParams.get('v');
+   const m=u.pathname.match(/\\/(embed|shorts|live)\\/([^/?#]+)/);if(m)return m[2];
+  }
+ }catch(_e){}
+ return null;
+}
+function ensureYouTubeAPI(){
+ if(window.YT&&window.YT.Player)return Promise.resolve(window.YT);
+ if(window.__ytApiPromise)return window.__ytApiPromise;
+ window.__ytApiPromise=new Promise((resolve,reject)=>{
+  const previous=window.onYouTubeIframeAPIReady;
+  window.onYouTubeIframeAPIReady=()=>{try{if(previous)previous();}catch(_e){}resolve(window.YT)};
+  const s=document.createElement('script');s.src='https://www.youtube.com/iframe_api';s.async=true;s.onerror=()=>reject(new Error('YouTube player could not be loaded. Please check your internet connection.'));document.head.appendChild(s);
+  setTimeout(()=>{if(window.YT&&window.YT.Player)resolve(window.YT)},10000);
+ });
+ return window.__ytApiPromise;
+}
+async function setupYouTubeLecture(container,videoId,internshipId,lectureId,saved){
+ await ensureYouTubeAPI();
+ let verifiedPosition=Math.max(0,Number(saved||0)),timer=null,poll=null,sessionId='';
+ const player=new YT.Player(container,{videoId,playerVars:{enablejsapi:1,origin:location.origin,rel:0,modestbranding:1,playsinline:1},events:{
+  onReady:()=>{
+   if(verifiedPosition>0){try{player.seekTo(verifiedPosition,true)}catch(_e){}}
+  },
+  onStateChange:async ev=>{
+   if(ev.data===YT.PlayerState.PLAYING){
+    const sr=await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:internshipId,lecture_id:lectureId,position_seconds:player.getCurrentTime()}});
+    if(sr.error){toast(sr.error.message||'Unable to start lecture');return}
+    sessionId=sr.data?.progress?.active_session_id||'';
+    if(timer)clearInterval(timer);timer=setInterval(()=>sendYouTubeHeartbeat(internshipId,lectureId,player,()=>sessionId,v=>{verifiedPosition=Math.max(verifiedPosition,v)}),10000);
+    if(poll)clearInterval(poll);poll=setInterval(()=>{try{const now=player.getCurrentTime();if(now>verifiedPosition+8)player.seekTo(verifiedPosition,true)}catch(_e){}},1000);
+   }else if(ev.data===YT.PlayerState.PAUSED||ev.data===YT.PlayerState.ENDED){
+    if(timer){clearInterval(timer);timer=null}if(poll){clearInterval(poll);poll=null}
+    await sendYouTubeHeartbeat(internshipId,lectureId,player,()=>sessionId,v=>{verifiedPosition=Math.max(verifiedPosition,v)});
+   }
+  }
+ }});
+ container.__ytPlayer=player;
+}
+async function sendYouTubeHeartbeat(internshipId,lectureId,player,getSession,setVerified){
+ try{
+  const current=Number(player.getCurrentTime()||0),r=await sb.functions.invoke('lecture-progress',{body:{action:'heartbeat',internship_id:internshipId,lecture_id:lectureId,position_seconds:current,playing:player.getPlayerState()===YT.PlayerState.PLAYING,visibility_state:document.visibilityState,session_id:getSession()||''}});
+  if(r.error){console.warn(r.error);return}
+  if(r.data?.progress){const el=document.getElementById('lp_'+lectureId);if(el)el.textContent=Number(r.data.progress.watched_seconds||0).toFixed(0)+' sec verified'+(r.data.progress.completed_at?' · Completed':'');setVerified(Number(r.data.progress.last_position_seconds||current))}
+  if(r.data?.progress?.completed_at){try{player.pauseVideo()}catch(_e){}toast('Lecture completed. Next lecture is now unlocked.');setTimeout(()=>studentTraining(),600)}
+ }catch(e){console.warn('YouTube heartbeat failed',e)}
+}
 async function studentTraining(){
  try{
   const {data:i,error:ie}=await sb.from('internships').select('*').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle();
@@ -483,21 +535,28 @@ async function studentTraining(){
    const p=pm.get(l.id),done=!!p?.completed_at,locked=!unlock;
    html+='<div class="card" style="margin-top:12px"><div style="display:flex;justify-content:space-between;gap:10px"><div><b>Lecture '+l.sequence_no+': '+esc(l.title)+'</b><div class="muted">'+esc(l.lecture_date||'')+' · '+Math.ceil(Number(l.duration_seconds||0)/60)+' min</div></div><span class="badge '+(done?'green':locked?'':'orange')+'">'+(done?'Completed':locked?'Locked':'Available')+'</span></div>';
    if(locked)html+='<p class="muted" style="margin-top:12px">Complete the previous lecture to unlock this lecture.</p>';
-   else html+='<video id="lecture_'+l.id+'" controls preload="metadata" style="width:100%;margin-top:12px;border-radius:10px;background:#000"></video><div id="lp_'+l.id+'" class="muted" style="font-size:12px;margin-top:6px">'+(p?Number(p.watched_seconds||0).toFixed(0)+' sec verified':'Not started')+'</div>';
+   else html+='<div id="lecture_'+l.id+'" class="lecture-player" style="width:100%;margin-top:12px;border-radius:10px;background:#000;overflow:hidden;min-height:180px"></div><div id="lp_'+l.id+'" class="muted" style="font-size:12px;margin-top:6px">'+(p?Number(p.watched_seconds||0).toFixed(0)+' sec verified':'Not started')+'</div>';
    html+='</div>';unlock=done;
   }
   document.getElementById('main').innerHTML=head('Online Training',esc(sec.name)+' · '+ps.filter(x=>x.completed_at).length+'/'+ls.length+' lectures completed')+'<div class="card"><div style="display:flex;justify-content:space-between"><b>Verified Learning Progress</b><strong>'+pct+'%</strong></div><div class="progress" style="margin-top:12px"><div class="bar" style="width:'+pct+'%"></div></div><p class="muted" style="margin-bottom:0">Only validated playback time is credited. Skipping ahead does not credit the skipped portion.</p></div>'+html;
   for(const l of ls){
    const el=document.getElementById('lecture_'+l.id);if(!el)continue;
-   const p=pm.get(l.id)||{};let saved=Number(p.last_position_seconds||0),timer=null;
+   const p=pm.get(l.id)||{};const saved=Number(p.last_position_seconds||0);
    const vr=await sb.functions.invoke('lecture-progress',{body:{action:'video_url',internship_id:i.id,lecture_id:l.id}});
-   if(vr.error)throw vr.error;if(vr.data?.url)el.src=vr.data.url;
-   el.addEventListener('loadedmetadata',()=>{if(saved>0&&saved<el.duration-2)el.currentTime=saved});
-   el.addEventListener('seeking',()=>{if(el.currentTime>saved+8)el.currentTime=saved});
-   el.addEventListener('play',async()=>{const sr=await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:i.id,lecture_id:l.id,position_seconds:el.currentTime}});if(sr.error){toast(sr.error.message||'Unable to start lecture');return}el.dataset.sessionId=sr.data?.progress?.active_session_id||'';timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,el),10000)});
-   el.addEventListener('pause',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,el)});
-   el.addEventListener('ended',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,el)});
-  }
+   if(vr.error)throw vr.error;
+   const url=vr.data?.url||'';const ytId=youtubeVideoId(url);
+   if(ytId){
+    await setupYouTubeLecture(el,ytId,i.id,l.id,saved);
+   }else{
+    const video=document.createElement('video');video.controls=true;video.preload='metadata';video.style.cssText='width:100%;height:auto;display:block;background:#000;max-height:520px';video.src=url;el.replaceChildren(video);
+    let timer=null;
+    video.addEventListener('loadedmetadata',()=>{if(saved>0&&saved<video.duration-2)video.currentTime=saved});
+    video.addEventListener('seeking',()=>{if(video.currentTime>saved+8)video.currentTime=saved});
+    video.addEventListener('play',async()=>{const sr=await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:i.id,lecture_id:l.id,position_seconds:video.currentTime}});if(sr.error){toast(sr.error.message||'Unable to start lecture');return}video.dataset.sessionId=sr.data?.progress?.active_session_id||'';timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,video),10000)});
+    video.addEventListener('pause',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
+    video.addEventListener('ended',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
+   }
+  } }
  }catch(e){document.getElementById('main').innerHTML=head('Online Training','Verified lecture-based learning workspace')+'<div class="card alert">'+esc(e.message||'Unable to load training.')+'</div>'}
 }
 async function sendLectureHeartbeat(internshipId,lectureId,video){
