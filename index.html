@@ -256,40 +256,37 @@ async function deleteAssignment(id){
 async function reviewAssignment(id){
  const reviewWindow=window.open('about:blank','_blank');
  const {data:sub,error}=await sb.from('assignment_submissions').select('id,submission_url,notes,status,score,feedback,submitted_at,assignments(title,domain)').eq('id',id).maybeSingle();
- if(error||!sub){
-  if(reviewWindow)reviewWindow.close();
-  toast(error?.message||'Submission not found.');
-  return;
- }
+ if(error||!sub){if(reviewWindow)reviewWindow.close();toast(error?.message||'Submission not found.');return;}
  const rawUrl=String(sub.submission_url||'').trim();
  let validUrl='';
- try{
-  const u=new URL(rawUrl);
-  if(u.protocol==='http:'||u.protocol==='https:')validUrl=u.href;
- }catch(e){}
- if(reviewWindow){
-  const safeTitle=esc(sub.assignments?.title||'Assignment Submission');
-  const safeDomain=esc(sub.assignments?.domain||'');
-  const safeNotes=esc(sub.notes||'No notes provided.');
-  const safeStatus=esc(sub.status||'submitted');
-  const safeScore=sub.score==null?'Not evaluated':esc(String(sub.score));
-  const safeFeedback=esc(sub.feedback||'No feedback yet.');
-  const safeSubmitted=sub.submitted_at?esc(new Date(sub.submitted_at).toLocaleString('en-IN')):'—';
-  const linkHtml=validUrl
-   ? '<a href="'+esc(validUrl)+'" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 16px;background:#7c3aed;color:#fff;border-radius:8px;text-decoration:none;font-weight:700">Open Student Submission</a>'
-   : '<div style="padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;color:#9a3412"><b>Submission link is invalid.</b><br>Student submitted: '+esc(rawUrl||'No URL provided')+'</div>';
-  reviewWindow.document.open();
-  reviewWindow.document.write('<!doctype html><html><head><title>'+safeTitle+' - Review</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="font-family:system-ui,Arial;background:#f6f7fb;margin:0;padding:28px"><div style="max-width:760px;margin:auto;background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:24px"><h2 style="margin-top:0">'+safeTitle+'</h2><p style="color:#64748b">'+safeDomain+'</p><hr><p><b>Submitted:</b> '+safeSubmitted+'</p><p><b>Status:</b> '+safeStatus+'</p><h3>Student Submission</h3>'+linkHtml+'<h3>Student Notes</h3><div style="padding:14px;background:#f8fafc;border-radius:10px;white-space:pre-wrap">'+safeNotes+'</div><h3>Current Evaluation</h3><p><b>Score:</b> '+safeScore+'</p><div style="padding:14px;background:#f8fafc;border-radius:10px;white-space:pre-wrap">'+safeFeedback+'</div></div></body></html>');
-  reviewWindow.document.close();
- }
- const rawScore=prompt('Score (0-100):',sub.score!=null?String(sub.score):'80');
- if(rawScore===null)return;
- const score=Number(rawScore);
- if(!Number.isFinite(score)||score<0||score>100){toast('Enter a score between 0 and 100.');return}
- const feedback=prompt('Feedback:',sub.feedback||'')||null;
- const {error:updateError}=await sb.from('assignment_submissions').update({score,feedback,status:'evaluated'}).eq('id',id);
- if(updateError)toast(updateError.message);
- else{toast('Assignment checked and evaluated');assignments()}
+ try{const u=new URL(rawUrl);if(u.protocol==='http:'||u.protocol==='https:')validUrl=u.href}catch(e){}
+ if(!reviewWindow){toast('Please allow pop-ups for the assignment checking window.');return;}
+ const safeTitle=esc(sub.assignments?.title||'Assignment Submission');
+ const safeDomain=esc(sub.assignments?.domain||'');
+ const safeNotes=esc(sub.notes||'No notes provided.');
+ const safeStatus=esc(sub.status||'submitted');
+ const safeScore=sub.score==null?'':esc(String(sub.score));
+ const safeFeedback=esc(sub.feedback||'');
+ const safeSubmitted=sub.submitted_at?esc(new Date(sub.submitted_at).toLocaleString('en-IN')):'—';
+ const linkHtml=validUrl?'<a href="'+esc(validUrl)+'" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 16px;background:#7c3aed;color:#fff;border-radius:8px;text-decoration:none;font-weight:700">Open Student Submission</a>':'<div style="padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;color:#9a3412"><b>Submission link is invalid.</b><br>Student submitted: '+esc(rawUrl||'No URL provided')+'</div>';
+ reviewWindow.document.open();
+ reviewWindow.document.write('<!doctype html><html><head><title>'+safeTitle+' - Check Assignment</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="font-family:system-ui,Arial;background:#f6f7fb;margin:0;padding:28px"><div style="max-width:820px;margin:auto;background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:24px"><h2 style="margin-top:0">'+safeTitle+'</h2><p style="color:#64748b">'+safeDomain+'</p><hr><p><b>Submitted:</b> '+safeSubmitted+'</p><p><b>Status:</b> '+safeStatus+'</p><h3>Student Submission</h3>'+linkHtml+'<h3>Student Notes</h3><div style="padding:14px;background:#f8fafc;border-radius:10px;white-space:pre-wrap">'+safeNotes+'</div><h3>Evaluation</h3><div style="padding:18px;background:#faf5ff;border:1px solid #ddd6fe;border-radius:12px"><label style="display:block;font-weight:700;margin-bottom:7px">Marks / Score <span style="font-weight:400">(0–100)</span></label><input id="reviewScore" type="number" min="0" max="100" step="1" value="'+safeScore+'" placeholder="Enter marks" style="width:100%;box-sizing:border-box;padding:11px;border:1px solid #cbd5e1;border-radius:8px;font-size:16px"><label style="display:block;font-weight:700;margin:16px 0 7px">Feedback</label><textarea id="reviewFeedback" rows="5" placeholder="Write feedback for the student..." style="width:100%;box-sizing:border-box;padding:11px;border:1px solid #cbd5e1;border-radius:8px;font-size:15px;resize:vertical">'+safeFeedback+'</textarea><button id="saveReview" style="margin-top:14px;padding:11px 18px;border:0;border-radius:8px;background:linear-gradient(90deg,#f97316,#7c3aed);color:#fff;font-weight:700;cursor:pointer">Save Evaluation</button><span id="reviewMsg" style="margin-left:10px"></span></div></div></body></html>');
+ reviewWindow.document.close();
+ const saveBtn=reviewWindow.document.getElementById('saveReview');
+ if(saveBtn)saveBtn.onclick=async function(){
+  const score=Number(reviewWindow.document.getElementById('reviewScore').value);
+  const feedback=reviewWindow.document.getElementById('reviewFeedback').value.trim();
+  const msg=reviewWindow.document.getElementById('reviewMsg');
+  if(!Number.isFinite(score)||score<0||score>100){msg.textContent='Enter score between 0 and 100.';return;}
+  saveBtn.disabled=true;saveBtn.textContent='Saving…';
+  try{
+   const {error:updateError}=await sb.from('assignment_submissions').update({score,feedback:feedback||null,status:'evaluated'}).eq('id',id);
+   if(updateError)throw updateError;
+   msg.textContent='✓ Evaluation saved';
+   toast('Assignment checked and evaluated');
+   assignments();
+  }catch(e){msg.textContent=e.message||'Could not save evaluation.';saveBtn.disabled=false;saveBtn.textContent='Save Evaluation';}
+ };
 }
 let finalTestState={data:null,answers:{},timer:null};
 async function finalTest(){
