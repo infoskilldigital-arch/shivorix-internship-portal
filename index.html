@@ -199,7 +199,25 @@ async function deleteAssignment(id){
  toast('Assignment deleted successfully');
  assignments();
 }
-async function reviewAssignment(id){const score=prompt('Score (0-100):','80');if(score===null)return;const feedback=prompt('Feedback:','')||null;const {error}=await sb.from('assignment_submissions').update({score:Number(score),feedback,status:'evaluated'}).eq('id',id);if(error)toast(error.message);else{toast('Submission evaluated');assignments()}}
+async function reviewAssignment(id){
+ const reviewWindow=window.open('about:blank','_blank');
+ const {data:sub,error}=await sb.from('assignment_submissions').select('id,submission_url,notes,status,score,feedback,assignments(title)').eq('id',id).maybeSingle();
+ if(error||!sub){if(reviewWindow)reviewWindow.close();toast(error?.message||'Submission not found.');return}
+ if(reviewWindow){
+  reviewWindow.document.write('<p style="font-family:Arial;padding:24px">Loading student submission…</p>');
+  if(sub.submission_url)reviewWindow.location.href=sub.submission_url;
+  else reviewWindow.document.body.innerHTML='<p style="font-family:Arial;padding:24px">No submission URL was provided by the student.</p>';
+ }
+ if(sub.notes)toast('Student notes: '+sub.notes);
+ const rawScore=prompt('Score (0-100):',sub.score!=null?String(sub.score):'80');
+ if(rawScore===null)return;
+ const score=Number(rawScore);
+ if(!Number.isFinite(score)||score<0||score>100){toast('Enter a score between 0 and 100.');return}
+ const feedback=prompt('Feedback:',sub.feedback||'')||null;
+ const {error:updateError}=await sb.from('assignment_submissions').update({score,feedback,status:'evaluated'}).eq('id',id);
+ if(updateError)toast(updateError.message);
+ else{toast('Assignment checked and evaluated');assignments()}
+}
 let finalTestState={data:null,answers:{},timer:null};
 async function finalTest(){
  try{
