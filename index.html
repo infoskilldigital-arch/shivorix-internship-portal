@@ -245,14 +245,33 @@ async function deleteAssignment(id){
 }
 async function reviewAssignment(id){
  const reviewWindow=window.open('about:blank','_blank');
- const {data:sub,error}=await sb.from('assignment_submissions').select('id,submission_url,notes,status,score,feedback,assignments(title)').eq('id',id).maybeSingle();
- if(error||!sub){if(reviewWindow)reviewWindow.close();toast(error?.message||'Submission not found.');return}
- if(reviewWindow){
-  reviewWindow.document.write('<p style="font-family:Arial;padding:24px">Loading student submission…</p>');
-  if(sub.submission_url)reviewWindow.location.href=sub.submission_url;
-  else reviewWindow.document.body.innerHTML='<p style="font-family:Arial;padding:24px">No submission URL was provided by the student.</p>';
+ const {data:sub,error}=await sb.from('assignment_submissions').select('id,submission_url,notes,status,score,feedback,submitted_at,assignments(title,domain)').eq('id',id).maybeSingle();
+ if(error||!sub){
+  if(reviewWindow)reviewWindow.close();
+  toast(error?.message||'Submission not found.');
+  return;
  }
- if(sub.notes)toast('Student notes: '+sub.notes);
+ const rawUrl=String(sub.submission_url||'').trim();
+ let validUrl='';
+ try{
+  const u=new URL(rawUrl);
+  if(u.protocol==='http:'||u.protocol==='https:')validUrl=u.href;
+ }catch(e){}
+ if(reviewWindow){
+  const safeTitle=esc(sub.assignments?.title||'Assignment Submission');
+  const safeDomain=esc(sub.assignments?.domain||'');
+  const safeNotes=esc(sub.notes||'No notes provided.');
+  const safeStatus=esc(sub.status||'submitted');
+  const safeScore=sub.score==null?'Not evaluated':esc(String(sub.score));
+  const safeFeedback=esc(sub.feedback||'No feedback yet.');
+  const safeSubmitted=sub.submitted_at?esc(new Date(sub.submitted_at).toLocaleString('en-IN')):'—';
+  const linkHtml=validUrl
+   ? '<a href="'+esc(validUrl)+'" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 16px;background:#7c3aed;color:#fff;border-radius:8px;text-decoration:none;font-weight:700">Open Student Submission</a>'
+   : '<div style="padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;color:#9a3412"><b>Submission link is invalid.</b><br>Student submitted: '+esc(rawUrl||'No URL provided')+'</div>';
+  reviewWindow.document.open();
+  reviewWindow.document.write('<!doctype html><html><head><title>'+safeTitle+' - Review</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="font-family:system-ui,Arial;background:#f6f7fb;margin:0;padding:28px"><div style="max-width:760px;margin:auto;background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:24px"><h2 style="margin-top:0">'+safeTitle+'</h2><p style="color:#64748b">'+safeDomain+'</p><hr><p><b>Submitted:</b> '+safeSubmitted+'</p><p><b>Status:</b> '+safeStatus+'</p><h3>Student Submission</h3>'+linkHtml+'<h3>Student Notes</h3><div style="padding:14px;background:#f8fafc;border-radius:10px;white-space:pre-wrap">'+safeNotes+'</div><h3>Current Evaluation</h3><p><b>Score:</b> '+safeScore+'</p><div style="padding:14px;background:#f8fafc;border-radius:10px;white-space:pre-wrap">'+safeFeedback+'</div></div></body></html>');
+  reviewWindow.document.close();
+ }
  const rawScore=prompt('Score (0-100):',sub.score!=null?String(sub.score):'80');
  if(rawScore===null)return;
  const score=Number(rawScore);
