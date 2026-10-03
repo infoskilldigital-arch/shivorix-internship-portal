@@ -256,32 +256,49 @@ async function activities(){
     '<div class="field full"><label>Activity / Work Done *</label><input id="al_activity" placeholder="e.g. Developed homepage hero section"></div>'+
     '<div class="field full"><label>Description</label><textarea id="al_description" rows="3" placeholder="Describe what you worked on..."></textarea></div>'+
     '<div class="field full"><label>Learning / Outcome</label><textarea id="al_learning" rows="3" placeholder="What did you learn or what was the outcome?"></textarea></div>'+
+    '<div class="field full"><label>Evidence / Supporting File</label><input id="al_evidence" type="file" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/zip,application/x-zip-compressed,image/jpeg,image/png,image/webp"><small class="muted">Optional · PDF, DOC, DOCX, PPT, PPTX, ZIP, JPG, PNG or WEBP · Max 25 MB</small></div>'+
    '</div><button class="btn btn-primary" onclick="saveActivityLog()">Save Activity</button></div>'+
    '<div class="card" style="margin-top:16px"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><div><b>My Internship Log Book</b><div class="muted">Newest activities appear first.</div></div></div>'+
-   '<div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>Date</th><th>Activity</th><th>Learning / Outcome</th><th>Hours</th><th>Status</th><th>Mentor Feedback</th></tr></thead><tbody>'+
-   (rows.map(x=>'<tr><td>'+esc(x.activity_date||'—')+'</td><td><b>'+esc(x.activity||'—')+'</b>'+(x.description?'<br><small class="muted">'+esc(x.description)+'</small>':'')+'</td><td>'+esc(x.learning_outcome||'—')+'</td><td>'+Number(x.hours_worked||0).toFixed(2)+'</td><td><span class="badge '+(x.status==='reviewed'?'green':x.status==='returned'?'orange':'')+'">'+esc(x.status||'submitted')+'</span></td><td>'+esc(x.mentor_feedback||'—')+'</td></tr>').join('')||'<tr><td colspan="6" class="empty">No activities recorded yet.</td></tr>')+
+   '<div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>Date</th><th>Activity</th><th>Learning / Outcome</th><th>Hours</th><th>Evidence</th><th>Status</th><th>Mentor Feedback</th></tr></thead><tbody>'+
+   (rows.map(x=>'<tr><td>'+esc(x.activity_date||'—')+'</td><td><b>'+esc(x.activity||'—')+'</b>'+(x.description?'<br><small class="muted">'+esc(x.description)+'</small>':'')+'</td><td>'+esc(x.learning_outcome||'—')+'</td><td>'+Number(x.hours_worked||0).toFixed(2)+'</td><td>'+(x.evidence_path?'<button class="btn btn-soft" onclick="openActivityEvidence('+JSON.stringify(x.evidence_path)+')">View File</button>':'—')+'</td><td>'+(x.evidence_path?'<button class="btn btn-soft" onclick="openActivityEvidence('+JSON.stringify(x.evidence_path)+')">View File</button>':'—')+'</td><td><span class="badge '+(x.status==='reviewed'?'green':x.status==='returned'?'orange':'')+'">'+esc(x.status||'submitted')+'</span></td><td>'+esc(x.mentor_feedback||'—')+'</td></tr>').join('')||'<tr><td colspan="7" class="empty">No activities recorded yet.</td></tr>')+
    '</tbody></table></div></div>';
   return;
  }
  const {data,error}=await sb.from('internship_activity_logs').select('*,profiles(full_name,college_name,university_registration_number,college_roll_number)').order('activity_date',{ascending:false}).order('created_at',{ascending:false});
  if(error)throw error;
  document.getElementById('main').innerHTML=head('Activities / Log Book','Review daily internship work records from your permitted students')+
-  '<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Date</th><th>Activity</th><th>Hours</th><th>Outcome</th><th>Status</th><th>Action</th></tr></thead><tbody>'+
-  ((data||[]).map(x=>'<tr><td><b>'+esc(x.profiles?.full_name||'—')+'</b><br><small class="muted">'+esc(x.profiles?.college_roll_number||x.profiles?.university_registration_number||'')+'</small></td><td>'+esc(x.activity_date||'—')+'</td><td><b>'+esc(x.activity||'—')+'</b>'+(x.description?'<br><small class="muted">'+esc(x.description)+'</small>':'')+'</td><td>'+Number(x.hours_worked||0).toFixed(2)+'</td><td>'+esc(x.learning_outcome||'—')+'</td><td><span class="badge '+(x.status==='reviewed'?'green':x.status==='returned'?'orange':'')+'">'+esc(x.status||'submitted')+'</span></td><td>'+(x.status==='submitted'||x.status==='returned'?'<button class="btn btn-primary" onclick="reviewActivityLog(&quot;'+x.id+'&quot;,&quot;reviewed&quot;)">Review</button> <button class="btn btn-soft" onclick="reviewActivityLog(&quot;'+x.id+'&quot;,&quot;returned&quot;)">Return</button>':'—')+'</td></tr>').join('')||'<tr><td colspan="7" class="empty">No internship activities found.</td></tr>')+
+  '<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Date</th><th>Activity</th><th>Hours</th><th>Outcome</th><th>Evidence</th><th>Status</th><th>Action</th></tr></thead><tbody>'+
+  ((data||[]).map(x=>'<tr><td><b>'+esc(x.profiles?.full_name||'—')+'</b><br><small class="muted">'+esc(x.profiles?.college_roll_number||x.profiles?.university_registration_number||'')+'</small></td><td>'+esc(x.activity_date||'—')+'</td><td><b>'+esc(x.activity||'—')+'</b>'+(x.description?'<br><small class="muted">'+esc(x.description)+'</small>':'')+'</td><td>'+Number(x.hours_worked||0).toFixed(2)+'</td><td>'+esc(x.learning_outcome||'—')+'</td><td><span class="badge '+(x.status==='reviewed'?'green':x.status==='returned'?'orange':'')+'">'+esc(x.status||'submitted')+'</span></td><td>'+(x.status==='submitted'||x.status==='returned'?'<button class="btn btn-primary" onclick="reviewActivityLog(&quot;'+x.id+'&quot;,&quot;reviewed&quot;)">Review</button> <button class="btn btn-soft" onclick="reviewActivityLog(&quot;'+x.id+'&quot;,&quot;returned&quot;)">Return</button>':'—')+'</td></tr>').join('')||'<tr><td colspan="8" class="empty">No internship activities found.</td></tr>')+
   '</tbody></table></div></div>';
 }
+async function openActivityEvidence(path){
+ try{
+  if(!path)throw Error('No evidence file is attached to this activity.');
+  const {data,error}=await sb.storage.from('internship-submissions').createSignedUrl(path,600);
+  if(error)throw error;
+  if(!data?.signedUrl)throw Error('Unable to create a secure file link.');
+  window.open(data.signedUrl,'_blank','noopener,noreferrer');
+ }catch(e){toast(e.message||'Unable to open evidence file');console.error('Activity evidence error',e)}
+}
 async function saveActivityLog(){
+ let uploadedPath=null;
  try{
   if(state.role!=='student')throw Error('Only students can submit Log Book activities.');
   const date=document.getElementById('al_date')?.value;
   const activity=document.getElementById('al_activity')?.value.trim();
   const description=document.getElementById('al_description')?.value.trim()||null;
   const learning=document.getElementById('al_learning')?.value.trim()||null;
+  const evidence=document.getElementById('al_evidence')?.files?.[0]||null;
   const hours=Number(document.getElementById('al_hours')?.value||0);
   if(!date||!activity)throw Error('Date and Activity / Work Done are required.');
   if(!hours||hours<0.25||hours>4)throw Error('Hours Worked must be between 0.25 and 4 hours.');
   const today=localToday();
   if(date>today)throw Error('Future dates cannot be added to the Log Book.');
+  if(evidence){
+   if(evidence.size>25*1024*1024)throw Error('Evidence file must be 25 MB or smaller.');
+   const allowed=['application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation','application/zip','application/x-zip-compressed','image/jpeg','image/png','image/webp'];
+   if(!allowed.includes(evidence.type))throw Error('Evidence file type is not supported.');
+  }
   const {data:i,error:ie}=await sb.from('internships').select('id,start_date,end_date,status').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle();
   if(ie)throw ie;
   if(!i)throw Error('Activate your internship first.');
@@ -289,13 +306,23 @@ async function saveActivityLog(){
   if(i.end_date&&date>i.end_date)throw Error('Activity date cannot be after your internship end date.');
   const {data:existing,error:ee}=await sb.from('internship_activity_logs').select('hours_worked').eq('internship_id',i.id).eq('activity_date',date);
   if(ee)throw ee;
-  const used=(existing||[]).reduce((s,x)=>s+Number(x.hours_worked||0),0);
+  const used=(existing||[]).reduce((sum,x)=>sum+Number(x.hours_worked||0),0);
   if(used+hours>4.0001)throw Error('This date already has '+used.toFixed(2)+' logged hours. Maximum is 4 hours per date.');
-  const {error}=await sb.from('internship_activity_logs').insert({internship_id:i.id,student_id:state.user.id,activity_date:date,activity,description,learning_outcome:learning,hours_worked:Number(hours.toFixed(2)),status:'submitted'});
+  if(evidence){
+   const safe=evidence.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+   uploadedPath=state.user.id+'/activities/'+Date.now()+'_'+safe;
+   const {error:up}=await sb.storage.from('internship-submissions').upload(uploadedPath,evidence,{contentType:evidence.type,upsert:false});
+   if(up)throw up;
+  }
+  const {error}=await sb.from('internship_activity_logs').insert({internship_id:i.id,student_id:state.user.id,activity_date:date,activity,description,learning_outcome:learning,hours_worked:Number(hours.toFixed(2)),evidence_path:uploadedPath,status:'submitted'});
   if(error)throw error;
-  toast('Activity added to your Log Book');
+  toast(evidence?'Activity and evidence uploaded successfully.':'Activity added to your Log Book');
   activities();
- }catch(e){toast(e.message||'Unable to save activity');console.error('Activity log error',e)}
+ }catch(e){
+  if(uploadedPath){try{await sb.storage.from('internship-submissions').remove([uploadedPath])}catch(_e){}}
+  toast(e.message||'Unable to save activity');
+  console.error('Activity log error',e);
+}
 }
 async function reviewActivityLog(id,status){
  try{
