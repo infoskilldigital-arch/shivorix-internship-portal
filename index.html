@@ -683,17 +683,18 @@ function ensureYouTubeAPI(){
 }
 async function setupYouTubeLecture(container,videoId,internshipId,lectureId,saved){
  await ensureYouTubeAPI();
- let verifiedPosition=Math.max(0,Number(saved||0)),timer=null,sessionId='';
+ let timer=null,sessionId='';
  const player=new YT.Player(container,{videoId,playerVars:{enablejsapi:1,origin:location.origin,rel:0,modestbranding:1,playsinline:1},events:{
   onReady:()=>{
-   if(verifiedPosition>0){try{player.seekTo(verifiedPosition,true)}catch(_e){}}
+   // Never seek automatically. Playback must continue normally without jumping back.
   },
   onStateChange:async ev=>{
    if(ev.data===YT.PlayerState.PLAYING){
+    if(sessionId) return;
     const sr=await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:internshipId,lecture_id:lectureId,position_seconds:player.getCurrentTime()}});
     if(sr.error){toast(sr.error.message||'Unable to start lecture');return}
     sessionId=sr.data?.progress?.active_session_id||'';
-    if(timer)clearInterval(timer);timer=setInterval(()=>sendYouTubeHeartbeat(internshipId,lectureId,player,()=>sessionId,v=>{verifiedPosition=Math.max(verifiedPosition,v)}),10000);
+    if(timer)clearInterval(timer);if(!timer) timer=setInterval(()=>sendYouTubeHeartbeat(internshipId,lectureId,player,()=>sessionId,v=>{}),10000);
     // Continuous playback is allowed. The server heartbeat validates watched progress; do not force-seek during playback.
    }else if(ev.data===YT.PlayerState.PAUSED||ev.data===YT.PlayerState.ENDED){
     if(timer){clearInterval(timer);timer=null}
@@ -733,7 +734,7 @@ async function studentTraining(){
   document.getElementById('main').innerHTML=head('Online Training',esc(sec.name)+' · '+ps.filter(x=>x.completed_at).length+'/'+ls.length+' lectures completed')+'<div class="card"><div style="display:flex;justify-content:space-between"><b>Verified Learning Progress</b><strong>'+pct+'%</strong></div><div class="progress" style="margin-top:12px"><div class="bar" style="width:'+pct+'%"></div></div><p class="muted" style="margin-bottom:0">Only validated playback time is credited. Skipping ahead does not credit the skipped portion.</p></div>'+html;
   for(const l of ls){
    const el=document.getElementById('lecture_'+l.id);if(!el)continue;
-   const p=pm.get(l.id)||{};const saved=Number(p.last_position_seconds||0);
+   const p=pm.get(l.id)||{};const saved=0;
    const vr=await sb.functions.invoke('lecture-progress',{body:{action:'video_url',internship_id:i.id,lecture_id:l.id}});
    if(vr.error)throw vr.error;
    const url=vr.data?.url||'';const ytId=youtubeVideoId(url);
@@ -742,9 +743,11 @@ async function studentTraining(){
    }else{
     const video=document.createElement('video');video.controls=true;video.preload='metadata';video.style.cssText='width:100%;height:auto;display:block;background:#000;max-height:520px';video.src=url;el.replaceChildren(video);
     let timer=null;
-    video.addEventListener('loadedmetadata',()=>{if(saved>0&&saved<video.duration-2)video.currentTime=saved});
-    // Do not force-seek after the saved position; normal playback must be allowed to continue.
-    video.addEventListener('play',async()=>{const sr=await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:i.id,lecture_id:l.id,position_seconds:video.currentTime}});if(sr.error){toast(sr.error.message||'Unable to start lecture');return}video.dataset.sessionId=sr.data?.progress?.active_session_id||'';timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,video),10000)});
+    // No automatic resume seek. Normal playback must never jump backward.
+    video.addEventListener('play',async()=>{
+     if(video.dataset.sessionId){if(!timer)timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,video),10000);return}
+     const sr=await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:i.id,lecture_id:l.id,position_seconds:video.currentTime}});if(sr.error){toast(sr.error.message||'Unable to start lecture');return}video.dataset.sessionId=sr.data?.progress?.active_session_id||'';if(!timer)timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,video),10000)
+    });
     video.addEventListener('pause',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
     video.addEventListener('ended',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
    }
