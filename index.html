@@ -792,25 +792,36 @@ async function submitLectureTest(testId,attemptId){
 }
 async function manageLectureTest(lectureId){
  try{
-  const {data:l,error:le}=await sb.from('training_lectures').select('id,title,description,sector_id,internship_sectors(name)').eq('id',lectureId).single();if(le)throw le;
+  const {data:l,error:le}=await sb.from('training_lectures').select('id,title,description,video_url,sector_id,internship_sectors(name)').eq('id',lectureId).single();if(le)throw le;
   const {data:t,error:te}=await sb.from('final_tests').select('*').eq('lecture_id',lectureId).order('created_at',{ascending:false}).limit(1).maybeSingle();if(te)throw te;
   let html=head('Lecture Test','AI-generated 10-question MCQ test for '+esc(l.title))+'<div class="card">';
+  const isUploaded=String(l.video_url||'').startsWith('storage:');
   if(t){const {data:q}=await sb.from('final_test_questions').select('*').eq('test_id',t.id).order('sequence_no');html+='<div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><div><b>'+esc(t.title)+'</b><div class="muted">'+(q||[]).length+'/10 questions · Pass '+esc(String(t.pass_percentage))+'%</div></div><span class="badge green">Published</span></div>'+(q||[]).map((x,i)=>'<div style="margin-top:14px;padding:12px;border:1px solid #e5e7eb;border-radius:12px"><b>Q'+(i+1)+'. '+esc(x.question_text)+'</b><div class="muted" style="margin-top:6px">A) '+esc(x.options?.[0]||'')+' · B) '+esc(x.options?.[1]||'')+' · C) '+esc(x.options?.[2]||'')+' · D) '+esc(x.options?.[3]||'')+'</div><div style="margin-top:6px;color:#166534">Correct: '+esc(x.correct_answer)+'</div></div>').join('')+'<button class="btn btn-primary" style="margin-top:16px" onclick="regenerateLectureTest(\''+lectureId+'\')">Regenerate 10 Questions</button>';}
-  else html+='<p class="muted">AI will create exactly 10 MCQs from the lecture title and description. For best accuracy, put the lecture notes/transcript in the Description field.</p><button class="btn btn-primary" onclick="generateLectureTest(\''+lectureId+'\')">Generate 10 Questions with AI</button>';
+  else if(isUploaded)html+='<p class="muted">This lecture has a portal video. The system will transcribe its audio automatically and create questions from the actual lecture content.</p><button class="btn btn-primary" onclick="generateLectureTest(\''+lectureId+'\')">🎙️ Transcribe Video & Generate 10 Questions</button>';
+  else html+='<p class="muted">This lecture uses YouTube. If captions are available, the system can use them automatically. If YouTube has no captions, upload the video with <b>Replace Video</b> first; the portal will then transcribe its audio automatically.</p><button class="btn btn-primary" onclick="generateLectureTest(\''+lectureId+'\')">Generate 10 Questions with AI</button>';
   html+='<button class="btn btn-soft" style="margin-top:16px;margin-left:8px" onclick="training()">Back to Training</button></div>';document.getElementById('main').innerHTML=html;
  }catch(e){toast(e.message||'Unable to load lecture test')}
 }
 async function generateLectureTest(lectureId){
  try{
   const {data:l,error:le}=await sb.from('training_lectures').select('id,title,description,video_url,sector_id,internship_sectors(name)').eq('id',lectureId).single();if(le)throw le;
-  if(!youtubeVideoId(l.video_url))throw Error('This lecture does not have a valid YouTube video link.');
-  toast('Reading YouTube captions and generating 10 questions...');
-  const rr=await fetch('/api/generate-lecture-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:l.title,description:l.description,sector:l.internship_sectors?.name,videoUrl:l.video_url})});
+  let sourceText='',sourceType='';
+  if(String(l.video_url||'').startsWith('storage:')){
+   const path=String(l.video_url).slice(8);
+   const {data:signed,error:se}=await sb.storage.from('training-videos').createSignedUrl(path,3600);if(se)throw se;
+   toast('Transcribing lecture audio...');
+   const tr=await fetch('/api/transcribe-lecture',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audioUrl:signed.signedUrl})});
+   const tb=await tr.json();if(!tr.ok)throw Error(tb.error||'Video transcription failed.');
+   sourceText=tb.transcript;sourceType='uploaded video';
+  }else if(youtubeVideoId(l.video_url)){
+   toast('Reading YouTube captions and generating 10 questions...');
+  }else throw Error('This lecture has no valid video source.');
+  const rr=await fetch('/api/generate-lecture-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:l.title,description:l.description,sector:l.internship_sectors?.name,videoUrl:sourceText?'':l.video_url,sourceText})});
   const body=await rr.json();if(!rr.ok)throw Error(body.error||'AI question generation failed.');
   const {data:test,error:te}=await sb.from('final_tests').insert({title:'Test: '+l.title,lecture_id:lectureId,sector_id:l.sector_id,duration_minutes:10,pass_percentage:60,total_marks:10,is_active:true,created_by:state.user.id}).select('id').single();if(te)throw te;
   const rows=body.questions.map((x,i)=>({test_id:test.id,question_text:x.question_text,question_type:'mcq',options:x.options,correct_answer:x.correct_answer,marks:1,sequence_no:i+1,is_active:true}));
   const {error:qe}=await sb.from('final_test_questions').insert(rows);if(qe){await sb.from('final_tests').delete().eq('id',test.id);throw qe}
-  toast('10 MCQs generated from the YouTube lecture and published successfully');manageLectureTest(lectureId);
+  toast('10 MCQs generated from '+sourceType+' and published successfully');manageLectureTest(lectureId);
  }catch(e){toast(e.message||'Unable to generate test')}
 }
 async function regenerateLectureTest(lectureId){if(!confirm('Regenerate this lecture test? The current test will be unpublished.'))return;const {data:t}=await sb.from('final_tests').select('id').eq('lecture_id',lectureId).eq('is_active',true).maybeSingle();if(t)await sb.from('final_tests').update({is_active:false}).eq('id',t.id);await generateLectureTest(lectureId);}
