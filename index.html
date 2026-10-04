@@ -686,7 +686,7 @@ async function setupYouTubeLecture(container,videoId,internshipId,lectureId,save
  let timer=null,sessionId='';
  const player=new YT.Player(container,{videoId,playerVars:{enablejsapi:1,origin:location.origin,rel:0,modestbranding:1,playsinline:1,autoplay:0,loop:0},events:{
   onReady:()=>{
-   // Never seek automatically. Playback must continue normally without jumping back.
+   // No automatic seek/resume. Student controls playback position freely.
    try{player.setLoop(false)}catch(_e){}
   },
   onStateChange:async ev=>{
@@ -695,11 +695,17 @@ async function setupYouTubeLecture(container,videoId,internshipId,lectureId,save
     const sr=await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:internshipId,lecture_id:lectureId,position_seconds:player.getCurrentTime()}});
     if(sr.error){toast(sr.error.message||'Unable to start lecture');return}
     sessionId=sr.data?.progress?.active_session_id||'';
-    if(timer)clearInterval(timer);if(!timer) timer=setInterval(()=>sendYouTubeHeartbeat(internshipId,lectureId,player,()=>sessionId,v=>{}),10000);
-    // Continuous playback is allowed. The server heartbeat validates watched progress; do not force-seek during playback.
-   }else if(ev.data===YT.PlayerState.PAUSED||ev.data===YT.PlayerState.ENDED){
+    if(!timer) timer=setInterval(()=>sendYouTubeHeartbeat(internshipId,lectureId,player,()=>sessionId),10000);
+   }else if(ev.data===YT.PlayerState.PAUSED){
     if(timer){clearInterval(timer);timer=null}
-    await sendYouTubeHeartbeat(internshipId,lectureId,player,()=>sessionId,v=>{verifiedPosition=Math.max(verifiedPosition,v)});
+    await sendYouTubeHeartbeat(internshipId,lectureId,player,()=>sessionId);
+   }else if(ev.data===YT.PlayerState.ENDED){
+    if(timer){clearInterval(timer);timer=null}
+    await sendYouTubeHeartbeat(internshipId,lectureId,player,()=>sessionId);
+    // Hide YouTube's end-screen recommendations and show only the portal completion state.
+    try{
+     container.innerHTML='<div style="min-height:180px;display:flex;align-items:center;justify-content:center;background:#111;color:#fff;text-align:center;padding:24px"><div><div style="font-size:22px;font-weight:800">✓ Lecture Finished</div><div style="margin-top:8px;color:#d1d5db">Your verified progress has been recorded.</div></div></div>';
+    }catch(_e){}
    }
   }
  }});
