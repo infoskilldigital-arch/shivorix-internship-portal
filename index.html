@@ -684,9 +684,10 @@ function ensureYouTubeAPI(){
 async function setupYouTubeLecture(container,videoId,internshipId,lectureId,saved){
  await ensureYouTubeAPI();
  let timer=null,sessionId='';
- const player=new YT.Player(container,{videoId,playerVars:{enablejsapi:1,origin:location.origin,rel:0,modestbranding:1,playsinline:1},events:{
+ const player=new YT.Player(container,{videoId,playerVars:{enablejsapi:1,origin:location.origin,rel:0,modestbranding:1,playsinline:1,autoplay:0,loop:0},events:{
   onReady:()=>{
    // Never seek automatically. Playback must continue normally without jumping back.
+   try{player.setLoop(false)}catch(_e){}
   },
   onStateChange:async ev=>{
    if(ev.data===YT.PlayerState.PLAYING){
