@@ -647,7 +647,7 @@ async function training(){
   '<div class="field"><label>Lecture Title *</label><input id="tl_title"></div>'+
   '<div class="field"><label>Sequence No.</label><input id="tl_seq" type="number" min="1" value="1"></div>'+
   '<div class="field"><label>Duration (minutes) *</label><input id="tl_duration" type="number" min="1" value="30"></div>'+
-  '<div class="field"><label>Video URL *</label><input id="tl_video"></div>'+
+  '<div class="field full"><label>Lecture Video *</label><input id="tl_video_file" type="file" accept="video/mp4,video/webm,video/quicktime"><small class="muted">Upload MP4/WebM/MOV · Maximum 200 MB. The student player will show only this uploaded lecture—no YouTube recommendations.</small></div>'+
   '<div class="field full"><label>Description</label><textarea id="tl_desc" rows="3"></textarea></div>'+
   '<button class="btn btn-primary" onclick="saveTrainingLecture()">Publish Lecture</button></div></div>'+
   '<div class="card"><b>Training rule</b><p class="muted">One daily lecture per sector. Students see only their sector. Previous lectures remain available and future lectures stay locked.</p><p class="muted">Attendance is recorded after verified lecture completion.</p></div></div>'+
@@ -658,7 +658,18 @@ async function training(){
  return studentTraining();
 }
 function localToday(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
-async function saveTrainingLecture(){try{const sector_id=document.getElementById('tl_sector').value,lecture_date=document.getElementById('tl_date').value,title=document.getElementById('tl_title').value.trim(),sequence_no=Number(document.getElementById('tl_seq').value||1),duration_seconds=Math.round(Number(document.getElementById('tl_duration').value||0)*60),video_url=document.getElementById('tl_video').value.trim(),description=document.getElementById('tl_desc').value.trim()||null;if(!sector_id||!lecture_date||!title||!video_url||duration_seconds<60)throw Error('Sector, date, title, video URL and duration are required.');const {data:dup}=await sb.from('training_lectures').select('id').eq('sector_id',sector_id).eq('lecture_date',lecture_date).limit(1);if(dup&&dup.length)throw Error('A lecture is already assigned to this sector for this date.');const {error}=await sb.from('training_lectures').insert({sector_id,lecture_date,title,sequence_no,duration_seconds,video_url,description,is_active:true});if(error)throw error;toast('Lecture published successfully');training()}catch(e){toast(e.message||'Unable to publish lecture')}}
+async function saveTrainingLecture(){try{
+ const sector_id=document.getElementById('tl_sector').value,lecture_date=document.getElementById('tl_date').value,title=document.getElementById('tl_title').value.trim(),sequence_no=Number(document.getElementById('tl_seq').value||1),duration_seconds=Math.round(Number(document.getElementById('tl_duration').value||0)*60),file=document.getElementById('tl_video_file')?.files?.[0],description=document.getElementById('tl_desc').value.trim()||null;
+ if(!sector_id||!lecture_date||!title||!file||duration_seconds<60)throw Error('Sector, date, title, video file and duration are required.');
+ if(file.size>200*1024*1024)throw Error('Video file must be 200 MB or smaller.');
+ if(!['video/mp4','video/webm','video/quicktime'].includes(file.type))throw Error('Please upload an MP4, WebM or MOV video.');
+ const {data:dup}=await sb.from('training_lectures').select('id').eq('sector_id',sector_id).eq('lecture_date',lecture_date).limit(1);if(dup&&dup.length)throw Error('A lecture is already assigned to this sector for this date.');
+ const ext=(file.name.split('.').pop()||'mp4').toLowerCase(),path='lectures/'+crypto.randomUUID()+'.'+ext;
+ const {error:ue}=await sb.storage.from('training-videos').upload(path,file,{contentType:file.type,upsert:false,cacheControl:'3600'});if(ue)throw ue;
+ const {error}=await sb.from('training_lectures').insert({sector_id,lecture_date,title,sequence_no,duration_seconds,video_url:'storage:'+path,description,is_active:true});
+ if(error){await sb.storage.from('training-videos').remove([path]);throw error}
+ toast('Lecture uploaded and published successfully');training();
+}catch(e){toast(e.message||'Unable to publish lecture')}}
 function youtubeVideoId(url){
  try{
   const u=new URL(String(url||''));
@@ -744,20 +755,17 @@ async function studentTraining(){
    const p=pm.get(l.id)||{};const saved=0;
    const vr=await sb.functions.invoke('lecture-progress',{body:{action:'video_url',internship_id:i.id,lecture_id:l.id}});
    if(vr.error)throw vr.error;
-   const url=vr.data?.url||'';const ytId=youtubeVideoId(url);
-   if(ytId){
-    await setupYouTubeLecture(el,ytId,i.id,l.id,saved);
-   }else{
-    const video=document.createElement('video');video.controls=true;video.preload='metadata';video.style.cssText='width:100%;height:auto;display:block;background:#000;max-height:520px';video.src=url;el.replaceChildren(video);
-    let timer=null;
-    // No automatic resume seek. Normal playback must never jump backward.
-    video.addEventListener('play',async()=>{
-     if(video.dataset.sessionId){if(!timer)timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,video),10000);return}
-     const sr=await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:i.id,lecture_id:l.id,position_seconds:video.currentTime}});if(sr.error){toast(sr.error.message||'Unable to start lecture');return}video.dataset.sessionId=sr.data?.progress?.active_session_id||'';if(!timer)timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,video),10000)
-    });
-    video.addEventListener('pause',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
-    video.addEventListener('ended',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
-   }
+   const url=vr.data?.url||'';
+   if(!url){throw Error('Lecture video is unavailable.');}
+   if(url.startsWith('https://www.youtube.com')||url.startsWith('https://youtu.be')){el.innerHTML='<div class="alert">This lecture still uses an old YouTube link. Please ask the administrator to replace it with the uploaded lecture video.</div>';continue;}
+   const video=document.createElement('video');video.controls=true;video.preload='metadata';video.playsInline=true;video.disablePictureInPicture=false;video.style.cssText='width:100%;height:auto;display:block;background:#000;max-height:520px';video.src=url;el.replaceChildren(video);
+   let timer=null;
+   video.addEventListener('play',async()=>{
+    if(video.dataset.sessionId){if(!timer)timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,video),10000);return}
+    const sr=await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:i.id,lecture_id:l.id,position_seconds:video.currentTime}});if(sr.error){toast(sr.error.message||'Unable to start lecture');return}video.dataset.sessionId=sr.data?.progress?.active_session_id||'';if(!timer)timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,video),10000)
+   });
+   video.addEventListener('pause',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
+   video.addEventListener('ended',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
   }
  }catch(e){document.getElementById('main').innerHTML=head('Online Training','Verified lecture-based learning workspace')+'<div class="card alert">'+esc(e.message||'Unable to load training.')+'</div>'}
 }
