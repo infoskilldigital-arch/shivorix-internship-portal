@@ -859,7 +859,6 @@ async function manualLectureTest(lectureId){
 async function saveManualLectureTest(lectureId){
  try{
   const {data:l,error:le}=await sb.from('training_lectures').select('id,title,sector_id,admin_reviewed').eq('id',lectureId).single();if(le)throw le;
-  if(!l.admin_reviewed)throw Error('Admin must read and review this lecture before publishing a test.');
   const questions=[];
   for(let i=1;i<=10;i++){
    const q=document.getElementById('mq_'+i)?.value.trim();
