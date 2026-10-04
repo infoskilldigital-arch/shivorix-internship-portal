@@ -743,47 +743,77 @@ async function sendYouTubeHeartbeat(internshipId,lectureId,player,getSession,set
 }
 async function studentTraining(){
  try{
-  const {data:i,error:ie}=await sb.from('internships').select('*').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle();
-  if(ie)throw ie;
-  if(!i){document.getElementById('main').innerHTML=head('Online Training','Verified lecture-based learning workspace')+'<div class="card empty">Online training unlocks after Node Officer approval and internship activation.</div>';return}
+  const {data:i,error:ie}=await sb.from('internships').select('*').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle(); if(ie)throw ie;
+  if(!i){document.getElementById('main').innerHTML=head('Online Training','Verified lecture-based learning workspace')+'<div class="card empty">Online training unlocks after Node Officer approval and internship activation.</div>';return;}
   const {data:sec}=await sb.from('internship_sectors').select('id,name').eq('name',i.domain).maybeSingle();
-  if(!sec){document.getElementById('main').innerHTML=head('Online Training','Verified lecture-based learning workspace')+'<div class="card empty">Training content for your sector is not published yet.</div>';return}
+  if(!sec){document.getElementById('main').innerHTML=head('Online Training','Verified lecture-based learning workspace')+'<div class="card empty">Training content for your sector is not published yet.</div>';return;}
   const {data:lectures}=await sb.from('training_lectures').select('*').eq('sector_id',sec.id).eq('is_active',true).order('lecture_date',{ascending:true}).order('sequence_no',{ascending:true});
+  const ls=lectures||[], ids=ls.map(x=>x.id);
   const {data:progress}=await sb.from('lecture_progress').select('*').eq('internship_id',i.id).eq('student_id',state.user.id);
-  const ls=lectures||[],ps=progress||[],pm=new Map(ps.map(x=>[x.lecture_id,x]));
+  const {data:tests}=ids.length?await sb.from('final_tests').select('*').in('lecture_id',ids).eq('is_active',true):{data:[]};
+  const testIds=(tests||[]).map(x=>x.id);
+  const {data:attempts}=testIds.length?await sb.from('final_test_attempts').select('*').eq('student_id',state.user.id).in('test_id',testIds).order('started_at',{ascending:false}):{data:[]};
+  const ps=progress||[],pm=new Map(ps.map(x=>[x.lecture_id,x])),tm=new Map((tests||[]).map(x=>[x.lecture_id,x])),passed=new Map();
+  for(const a of (attempts||[])){if(a.passed&&!passed.has(a.test_id))passed.set(a.test_id,a);}
   const total=ls.reduce((a,x)=>a+Number(x.duration_seconds||0),0),watched=ps.reduce((a,x)=>a+Number(x.watched_seconds||0),0),pct=total?Math.min(100,Math.round(watched*100/total)):0;
   let unlock=true,html='';
   for(const l of ls){
-   const p=pm.get(l.id),done=!!p?.completed_at,locked=!unlock;
-   html+='<div class="card" style="margin-top:12px"><div style="display:flex;justify-content:space-between;gap:10px"><div><b>Lecture '+l.sequence_no+': '+esc(l.title)+'</b><div class="muted">'+esc(l.lecture_date||'')+' · '+Math.ceil(Number(l.duration_seconds||0)/60)+' min</div></div><span class="badge '+(done?'green':locked?'':'orange')+'">'+(done?'Completed':locked?'Locked':'Available')+'</span></div>';
-   if(locked)html+='<p class="muted" style="margin-top:12px">Complete the previous lecture to unlock this lecture.</p>';
-   else html+='<div id="lecture_'+l.id+'" class="lecture-player" style="width:100%;margin-top:12px;border-radius:10px;background:#000;overflow:hidden;min-height:180px"></div><div id="lp_'+l.id+'" class="muted" style="font-size:12px;margin-top:6px">'+(p?Number(p.watched_seconds||0).toFixed(0)+' sec verified':'Not started')+'</div>';
-   html+='</div>';unlock=done;
+   const p=pm.get(l.id),done=!!p?.completed_at,test=tm.get(l.id),testPassed=!!test&&passed.has(test.id),locked=!unlock;
+   html+='<div class="card" style="margin-top:12px"><div style="display:flex;justify-content:space-between;gap:10px"><div><b>Lecture '+l.sequence_no+': '+esc(l.title)+'</b><div class="muted">'+esc(l.lecture_date||'')+' · '+Math.ceil(Number(l.duration_seconds||0)/60)+' min</div></div><span class="badge '+(testPassed?'green':locked?'':'orange')+'">'+(testPassed?'Test Passed':locked?'Locked':done?'Lecture Completed':'Available')+'</span></div>';
+   if(locked) html+='<p class="muted" style="margin-top:12px">Complete the previous lecture and pass its 10-question test to unlock this lecture.</p>';
+   else{
+    html+='<div id="lecture_'+l.id+'" class="lecture-player" style="width:100%;margin-top:12px;border-radius:10px;background:#000;overflow:hidden;min-height:180px"></div><div id="lp_'+l.id+'" class="muted" style="font-size:12px;margin-top:6px">'+(p?Number(p.watched_seconds||0).toFixed(0)+' sec verified':'Not started')+'</div>';
+    if(done){if(test&&!testPassed)html+='<div class="alert" style="margin-top:12px"><b>Lecture test required</b><div class="muted" style="margin-top:4px">Pass this 10-question MCQ test to unlock the next lecture.</div><button class="btn btn-primary" style="margin-top:10px" onclick="openLectureTest(\''+test.id+'\',\''+l.id+'\')">Start Test</button></div>';else if(testPassed)html+='<div class="alert" style="margin-top:12px">✓ Lecture completed and test passed. Next lecture is unlocked.</div>';else html+='<div class="alert" style="margin-top:12px">Lecture completed. The 10-question test will appear after the admin publishes it.</div>';}
+   }
+   html+='</div>'; unlock=done&&!!test&&testPassed;
   }
   document.getElementById('main').innerHTML=head('Online Training',esc(sec.name)+' · '+ps.filter(x=>x.completed_at).length+'/'+ls.length+' lectures completed')+'<div class="card"><div style="display:flex;justify-content:space-between"><b>Verified Learning Progress</b><strong>'+pct+'%</strong></div><div class="progress" style="margin-top:12px"><div class="bar" style="width:'+pct+'%"></div></div><p class="muted" style="margin-bottom:0">Only validated playback time is credited. Skipping ahead does not credit the skipped portion.</p></div>'+html;
-  for(const l of ls){
-   const el=document.getElementById('lecture_'+l.id);if(!el)continue;
-   const p=pm.get(l.id)||{};const saved=0;
-   const vr=await sb.functions.invoke('lecture-progress',{body:{action:'video_url',internship_id:i.id,lecture_id:l.id}});
-   if(vr.error)throw vr.error;
-   const url=vr.data?.url||'';
-   if(!url){throw Error('Lecture video is unavailable.');}
-   const ytId=youtubeVideoId(url);
-   if(ytId){
-    await setupYouTubeLecture(el,ytId,i.id,l.id,saved);
-   }else{
-    const video=document.createElement('video');video.controls=true;video.preload='metadata';video.playsInline=true;video.style.cssText='width:100%;height:auto;display:block;background:#000;max-height:520px';video.src=url;el.replaceChildren(video);
-    let timer=null;
-    video.addEventListener('play',async()=>{
-     if(video.dataset.sessionId){if(!timer)timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,video),10000);return}
-     const sr=await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:i.id,lecture_id:l.id,position_seconds:video.currentTime}});if(sr.error){toast(sr.error.message||'Unable to start lecture');return}video.dataset.sessionId=sr.data?.progress?.active_session_id||'';if(!timer)timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,video),10000)
-    });
-    video.addEventListener('pause',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
-    video.addEventListener('ended',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
-   }
-  }
+  for(const l of ls){const el=document.getElementById('lecture_'+l.id);if(!el)continue;const vr=await sb.functions.invoke('lecture-progress',{body:{action:'video_url',internship_id:i.id,lecture_id:l.id}});if(vr.error)throw vr.error;const url=vr.data?.url||'';if(!url)throw Error('Lecture video is unavailable.');const ytId=youtubeVideoId(url);if(ytId)await setupYouTubeLecture(el,ytId,i.id,l.id,0);else{const video=document.createElement('video');video.controls=true;video.preload='metadata';video.playsInline=true;video.style.cssText='width:100%;height:auto;display:block;background:#000;max-height:520px';video.src=url;el.replaceChildren(video);let timer=null;video.addEventListener('play',async()=>{if(video.dataset.sessionId){if(!timer)timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,video),10000);return}const sr=await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:i.id,lecture_id:l.id,position_seconds:video.currentTime}});if(sr.error){toast(sr.error.message||'Unable to start lecture');return}video.dataset.sessionId=sr.data?.progress?.active_session_id||'';if(!timer)timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,video),10000)});video.addEventListener('pause',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});video.addEventListener('ended',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});}}
  }catch(e){document.getElementById('main').innerHTML=head('Online Training','Verified lecture-based learning workspace')+'<div class="card alert">'+esc(e.message||'Unable to load training.')+'</div>'}
 }
+async function openLectureTest(testId,lectureId){
+ try{
+  const {data:test,error:te}=await sb.from('final_tests').select('*').eq('id',testId).eq('is_active',true).single();if(te)throw te;
+  const {data:q,error:qe}=await sb.from('final_test_questions').select('id,question_text,options,marks,sequence_no').eq('test_id',testId).eq('is_active',true).order('sequence_no');if(qe)throw qe;
+  if(!q||q.length!==10)throw Error('This test is not ready yet. Admin must publish exactly 10 questions.');
+  const {data:i,error:ie}=await sb.from('internships').select('id').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).single();if(ie)throw ie;
+  const {data:attempt,error:ae}=await sb.from('final_test_attempts').insert({test_id:testId,internship_id:i.id,student_id:state.user.id,status:'started'}).select('id').single();if(ae)throw ae;
+  document.getElementById('main').innerHTML=head('Lecture Test','10 MCQs · 1 mark each')+'<div class="card"><div class="alert">Answer all 10 questions. Your score will be checked automatically after submission.</div><form id="lectureTestForm">'+q.map((x,idx)=>'<div class="card" style="margin-top:12px"><b>Q'+(idx+1)+'. '+esc(x.question_text)+'</b><div style="margin-top:10px">'+(Array.isArray(x.options)?x.options:[]).map(o=>'<label style="display:block;padding:9px 0"><input type="radio" name="q_'+x.id+'" value="'+esc(o).replace(/"/g,'&quot;')+'" required> '+esc(o)+'</label>').join('')+'</div></div>').join('')+'</form><button class="btn btn-primary" style="margin-top:16px" onclick="submitLectureTest(\''+testId+'\',\''+attempt.id+'\')">Submit Test</button><button class="btn btn-soft" style="margin-top:16px;margin-left:8px" onclick="studentTraining()">Cancel</button></div>';
+ }catch(e){toast(e.message||'Unable to start test');studentTraining()}
+}
+async function submitLectureTest(testId,attemptId){
+ try{
+  const {data:q,error:qe}=await sb.from('final_test_questions').select('id').eq('test_id',testId).eq('is_active',true).order('sequence_no');if(qe)throw qe;
+  const answers=[];for(const x of q||[]){const el=document.querySelector('input[name="q_'+x.id+'"]:checked');if(!el)throw Error('Please answer all 10 questions.');answers.push({attempt_id:attemptId,question_id:x.id,answer_text:el.value})}
+  const {error:ae}=await sb.from('final_test_answers').insert(answers);if(ae)throw ae;
+  const gr=await sb.functions.invoke('grade-lecture-test',{body:{attempt_id:attemptId}});if(gr.error)throw gr.error;const result=gr.data?.result;if(!result)throw Error('Test result was not returned.');
+  toast(result.passed?'Test passed: '+result.score+'/10 ('+result.percentage+'%)':'Test not passed: '+result.score+'/10 ('+result.percentage+'%). You can retry.');await studentTraining();
+ }catch(e){toast(e.message||'Unable to submit test')}
+}
+async function manageLectureTest(lectureId){
+ try{
+  const {data:l,error:le}=await sb.from('training_lectures').select('id,title,description,sector_id,internship_sectors(name)').eq('id',lectureId).single();if(le)throw le;
+  const {data:t,error:te}=await sb.from('final_tests').select('*').eq('lecture_id',lectureId).order('created_at',{ascending:false}).limit(1).maybeSingle();if(te)throw te;
+  let html=head('Lecture Test','AI-generated 10-question MCQ test for '+esc(l.title))+'<div class="card">';
+  if(t){const {data:q}=await sb.from('final_test_questions').select('*').eq('test_id',t.id).order('sequence_no');html+='<div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><div><b>'+esc(t.title)+'</b><div class="muted">'+(q||[]).length+'/10 questions · Pass '+esc(String(t.pass_percentage))+'%</div></div><span class="badge green">Published</span></div>'+(q||[]).map((x,i)=>'<div style="margin-top:14px;padding:12px;border:1px solid #e5e7eb;border-radius:12px"><b>Q'+(i+1)+'. '+esc(x.question_text)+'</b><div class="muted" style="margin-top:6px">A) '+esc(x.options?.[0]||'')+' · B) '+esc(x.options?.[1]||'')+' · C) '+esc(x.options?.[2]||'')+' · D) '+esc(x.options?.[3]||'')+'</div><div style="margin-top:6px;color:#166534">Correct: '+esc(x.correct_answer)+'</div></div>').join('')+'<button class="btn btn-primary" style="margin-top:16px" onclick="regenerateLectureTest(\''+lectureId+'\')">Regenerate 10 Questions</button>';}
+  else html+='<p class="muted">AI will create exactly 10 MCQs from the lecture title and description. For best accuracy, put the lecture notes/transcript in the Description field.</p><button class="btn btn-primary" onclick="generateLectureTest(\''+lectureId+'\')">Generate 10 Questions with AI</button>';
+  html+='<button class="btn btn-soft" style="margin-top:16px;margin-left:8px" onclick="training()">Back to Training</button></div>';document.getElementById('main').innerHTML=html;
+ }catch(e){toast(e.message||'Unable to load lecture test')}
+}
+async function generateLectureTest(lectureId){
+ try{
+  const {data:l,error:le}=await sb.from('training_lectures').select('id,title,description,sector_id,internship_sectors(name)').eq('id',lectureId).single();if(le)throw le;
+  const sourceText=prompt('Optional: paste lecture notes/transcript for more accurate questions. Leave blank to use the lecture description.','')||'';
+  const rr=await fetch('/api/generate-lecture-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:l.title,description:l.description,sector:l.internship_sectors?.name,sourceText})});
+  const body=await rr.json();if(!rr.ok)throw Error(body.error||'AI question generation failed.');
+  const {data:test,error:te}=await sb.from('final_tests').insert({title:'Test: '+l.title,lecture_id:lectureId,sector_id:l.sector_id,duration_minutes:10,pass_percentage:60,total_marks:10,is_active:true,created_by:state.user.id}).select('id').single();if(te)throw te;
+  const rows=body.questions.map((x,i)=>({test_id:test.id,question_text:x.question_text,question_type:'mcq',options:x.options,correct_answer:x.correct_answer,marks:1,sequence_no:i+1,is_active:true}));
+  const {error:qe}=await sb.from('final_test_questions').insert(rows);if(qe){await sb.from('final_tests').delete().eq('id',test.id);throw qe}
+  toast('10 MCQs generated and published successfully');manageLectureTest(lectureId);
+ }catch(e){toast(e.message||'Unable to generate test')}
+}
+async function regenerateLectureTest(lectureId){if(!confirm('Regenerate this lecture test? The current test will be unpublished.'))return;const {data:t}=await sb.from('final_tests').select('id').eq('lecture_id',lectureId).eq('is_active',true).maybeSingle();if(t)await sb.from('final_tests').update({is_active:false}).eq('id',t.id);await generateLectureTest(lectureId);}
+
 async function sendLectureHeartbeat(internshipId,lectureId,video){
  const r=await sb.functions.invoke('lecture-progress',{body:{action:'heartbeat',internship_id:internshipId,lecture_id:lectureId,position_seconds:video.currentTime,playing:!video.paused,visibility_state:document.visibilityState,session_id:video.dataset.sessionId||''}});
  if(r.error){console.warn(r.error);return}
