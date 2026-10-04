@@ -55,7 +55,7 @@ async function fetchYouTubeTranscript(videoId){
   const page=await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en`,{headers:{"User-Agent":"Mozilla/5.0","Accept-Language":"en-US,en;q=0.9"}});
   if(!page.ok)throw new Error("Unable to read the YouTube lecture page.");
   const html=await page.text();
-  const match=html.match(/"captionTracks":(\[.*?\]),"audioTracks"/s);
+  const match=html.match(new RegExp('"captionTracks":(\\\\[.*?\\\\]),"audioTracks"', "s"));
   if(!match)throw new Error("No YouTube captions are available for this lecture.");
   let tracks;
   try{tracks=JSON.parse(match[1])}catch(_e){throw new Error("YouTube caption data could not be read.");}
@@ -66,7 +66,7 @@ async function fetchYouTubeTranscript(videoId){
   if(!cap.ok)throw new Error("YouTube captions could not be downloaded.");
   const xml=await cap.text();
   const parts=[];
-  const re=/<text[^>]*>([\\s\\S]*?)<\\/text>/g;
+  const re=new RegExp("<text[^>]*>([\\s\\S]*?)</text>","g");
   let m;
   while((m=re.exec(xml))){
     const t=decodeEntities(m[1]).replace(/\\s+/g," ").trim();
