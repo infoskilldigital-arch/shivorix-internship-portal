@@ -1,0 +1,8 @@
+{
+  "name": "shivorix-internship-portal",
+  "private": true,
+  "dependencies": {
+    "ai": "7.0.123",
+    "@ai-sdk/gateway": "4.0.103"
+  }
+}
