@@ -683,7 +683,7 @@ function ensureYouTubeAPI(){
 }
 async function setupYouTubeLecture(container,videoId,internshipId,lectureId,saved){
  await ensureYouTubeAPI();
- let verifiedPosition=Math.max(0,Number(saved||0)),timer=null,poll=null,sessionId='';
+ let verifiedPosition=Math.max(0,Number(saved||0)),timer=null,sessionId='';
  const player=new YT.Player(container,{videoId,playerVars:{enablejsapi:1,origin:location.origin,rel:0,modestbranding:1,playsinline:1},events:{
   onReady:()=>{
    if(verifiedPosition>0){try{player.seekTo(verifiedPosition,true)}catch(_e){}}
@@ -694,9 +694,9 @@ async function setupYouTubeLecture(container,videoId,internshipId,lectureId,save
     if(sr.error){toast(sr.error.message||'Unable to start lecture');return}
     sessionId=sr.data?.progress?.active_session_id||'';
     if(timer)clearInterval(timer);timer=setInterval(()=>sendYouTubeHeartbeat(internshipId,lectureId,player,()=>sessionId,v=>{verifiedPosition=Math.max(verifiedPosition,v)}),10000);
-    if(poll)clearInterval(poll);poll=setInterval(()=>{try{const now=player.getCurrentTime();if(now>verifiedPosition+8)player.seekTo(verifiedPosition,true)}catch(_e){}},1000);
+    // Continuous playback is allowed. The server heartbeat validates watched progress; do not force-seek during playback.
    }else if(ev.data===YT.PlayerState.PAUSED||ev.data===YT.PlayerState.ENDED){
-    if(timer){clearInterval(timer);timer=null}if(poll){clearInterval(poll);poll=null}
+    if(timer){clearInterval(timer);timer=null}
     await sendYouTubeHeartbeat(internshipId,lectureId,player,()=>sessionId,v=>{verifiedPosition=Math.max(verifiedPosition,v)});
    }
   }
@@ -743,7 +743,7 @@ async function studentTraining(){
     const video=document.createElement('video');video.controls=true;video.preload='metadata';video.style.cssText='width:100%;height:auto;display:block;background:#000;max-height:520px';video.src=url;el.replaceChildren(video);
     let timer=null;
     video.addEventListener('loadedmetadata',()=>{if(saved>0&&saved<video.duration-2)video.currentTime=saved});
-    video.addEventListener('seeking',()=>{if(video.currentTime>saved+8)video.currentTime=saved});
+    // Do not force-seek after the saved position; normal playback must be allowed to continue.
     video.addEventListener('play',async()=>{const sr=await sb.functions.invoke('lecture-progress',{body:{action:'start',internship_id:i.id,lecture_id:l.id,position_seconds:video.currentTime}});if(sr.error){toast(sr.error.message||'Unable to start lecture');return}video.dataset.sessionId=sr.data?.progress?.active_session_id||'';timer=setInterval(()=>sendLectureHeartbeat(i.id,l.id,video),10000)});
     video.addEventListener('pause',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
     video.addEventListener('ended',async()=>{if(timer){clearInterval(timer);timer=null}await sendLectureHeartbeat(i.id,l.id,video)});
