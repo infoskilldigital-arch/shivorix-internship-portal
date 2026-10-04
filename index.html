@@ -821,7 +821,78 @@ async function sendLectureHeartbeat(internshipId,lectureId,video){
  if(r.data?.progress?.completed_at){video.pause();toast('Lecture completed. Next lecture is now unlocked.');setTimeout(()=>studentTraining(),600)}
 }
 
+
+/* Dedicated student test pages */
+function navItems(){
+ if(state.role==='admin')return [['dashboard','Dashboard'],['students','Students'],['applications','Applications'],['activities','Activities / Log Book'],['colleges','Colleges'],['node','Node Officers'],['internships','Internships'],['payments','Payments'],['training','Training'],['assignments','Assignments'],['evaluations','Evaluations'],['certificates','Certificates'],['documents','Documents'],['reports','Reports'],['settings','Settings'],['audit','Audit Logs']];
+ if(state.role==='node_officer')return [['dashboard','Dashboard'],['applications','Pending Applications'],['students','My College Students'],['internships','Internships'],['attendance','Attendance'],['activities','Weekly Activities'],['assignments','Assignments'],['documents','Documents'],['progress','Progress'],['evaluations','Evaluations'],['certificates','Certificates']];
+ return [['dashboard','Dashboard'],['profile','My Profile'],['apply','Apply for Internship'],['application','My Application'],['internship','Internship Details'],['training','Online Training'],['tests','My Tests'],['attendance','Attendance'],['activities','Activities'],['assignments','Assignments'],['project','Project & Report'],['final-test','Final Test'],['documents','Documents'],['evaluation','Evaluation'],['certificate','Certificate']];
+}
+function go(s){
+ state.section=s;
+ document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
+ const x=[...document.querySelectorAll('.nav button')].find(b=>b.getAttribute('onclick')?.includes("'"+s+"'"));
+ if(x)x.classList.add('active');
+ const routes={dashboard,profile,apply:applyPage,application,internship,training:state.role==='student'?studentTraining:training,tests:state.role==='student'?studentTests:dashboard,'lecture-test':state.role==='student'?lectureTestPage:dashboard,attendance:state.role==='node_officer'?nodeAttendance:attendance,activities:state.role==='node_officer'?nodeActivities:activities,assignments,project,'final-test':finalTest,documents:state.role==='node_officer'?nodeDocuments:documents,payment,evaluation,certificate,students,applications,colleges,node:nodePage,internships,payments,reports,audit,progress:state.role==='node_officer'?nodeProgress:progress,evaluations,settings};
+ try{
+  const result=(routes[s]||dashboard)();
+  if(result?.catch)result.catch(e=>{console.error('Portal section error',e);document.getElementById('main').innerHTML=head('Unable to load this section')+'<div class="card alert">'+esc(e?.message||'Please reload the portal.')+'</div>'});
+ }catch(e){
+  console.error('Portal section error',e);
+  const main=document.getElementById('main');if(main)main.innerHTML=head('Unable to load this section')+'<div class="card alert">'+esc(e?.message||'Please reload the portal.')+'</div>';
+ }
+}
+async function studentTests(){
+ try{
+  const {data:i,error:ie}=await sb.from('internships').select('*').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle();
+  if(ie)throw ie;
+  if(!i){document.getElementById('main').innerHTML=head('My Tests','Lecture-wise tests and results')+'<div class="card empty">Tests unlock after your internship is activated.</div>';return;}
+  const {data:sec}=await sb.from('internship_sectors').select('id,name').eq('name',i.domain).maybeSingle();
+  if(!sec){document.getElementById('main').innerHTML=head('My Tests','Lecture-wise tests and results')+'<div class="card empty">No training sector is assigned yet.</div>';return;}
+  const {data:lectures}=await sb.from('training_lectures').select('id,title,sequence_no,lecture_date,duration_seconds').eq('sector_id',sec.id).eq('is_active',true).order('lecture_date').order('sequence_no');
+  const ids=(lectures||[]).map(x=>x.id);
+  const {data:progress}=ids.length?await sb.from('lecture_progress').select('lecture_id,completed_at,watched_seconds').eq('internship_id',i.id).eq('student_id',state.user.id):{data:[]};
+  const {data:tests}=ids.length?await sb.from('final_tests').select('id,lecture_id,title,pass_percentage,total_marks,duration_minutes,is_active,created_at').in('lecture_id',ids).eq('is_active',true):{data:[]};
+  const testIds=(tests||[]).map(x=>x.id);
+  const {data:attempts}=testIds.length?await sb.from('final_test_attempts').select('id,test_id,score,percentage,passed,status,submitted_at,started_at').eq('student_id',state.user.id).in('test_id',testIds).order('started_at',{ascending:false}):{data:[]};
+  const pm=new Map((progress||[]).map(x=>[x.lecture_id,x])),tm=new Map((tests||[]).map(x=>[x.lecture_id,x])),latest=new Map();
+  for(const a of (attempts||[])){if(!latest.has(a.test_id))latest.set(a.test_id,a);}
+  let html=head('My Tests','Lecture-wise tests, attempts and results')+'<div class="card"><div class="alert">Each lecture has a separate 10-question test. Pass the test to unlock the next lecture.</div><div class="table-wrap"><table class="table"><thead><tr><th>Lecture</th><th>Test</th><th>Lecture Status</th><th>Test Status</th><th>Score</th><th>Action</th></tr></thead><tbody>';
+  for(const l of (lectures||[])){
+   const p=pm.get(l.id),t=tm.get(l.id),a=t?latest.get(t.id):null;
+   const passed=!!a?.passed, completed=!!p?.completed_at;
+   let status=!t?'Not Published':passed?'Passed':a?'Not Passed':completed?'Available':'Locked';
+   let action=!t?'—':passed?'<span class="muted">Completed</span>':completed?'<button class="btn btn-primary" onclick="openLectureTest(\''+t.id+'\',\''+l.id+'\')">'+(a?'Retry Test':'Start Test')+'</button>':'<span class="muted">Complete lecture first</span>';
+   html+='<tr><td><b>Lecture '+esc(String(l.sequence_no||''))+'</b><br>'+esc(l.title)+'</td><td>'+esc(t?.title||'—')+'</td><td><span class="badge '+(completed?'green':'orange')+'">'+(completed?'Completed':'Pending')+'</span></td><td><span class="badge '+(passed?'green':status==='Available'?'orange':'')+'">'+status+'</span></td><td>'+(a?.submitted_at?(esc(String(a.score||0))+'/'+esc(String(t.total_marks||10))+' · '+esc(String(a.percentage||0))+'%'):'—')+'</td><td>'+action+'</td></tr>';
+  }
+  html+='</tbody></table></div></div>';
+  document.getElementById('main').innerHTML=html;
+ }catch(e){
+  document.getElementById('main').innerHTML=head('My Tests','Lecture-wise tests and results')+'<div class="card alert">'+esc(e.message||'Unable to load tests.')+'</div>';
+ }
+}
+async function openLectureTest(testId,lectureId){
+ state.activeLectureTest={testId,lectureId};
+ go('lecture-test');
+}
+async function lectureTestPage(){
+ const testId=state.activeLectureTest?.testId;
+ const lectureId=state.activeLectureTest?.lectureId;
+ if(!testId){go('tests');return;}
+ try{
+  const {data:test,error:te}=await sb.from('final_tests').select('*').eq('id',testId).eq('is_active',true).single();if(te)throw te;
+  const {data:q,error:qe}=await sb.from('final_test_questions').select('id,question_text,options,marks,sequence_no').eq('test_id',testId).eq('is_active',true).order('sequence_no');if(qe)throw qe;
+  if(!q||q.length!==10)throw Error('This test is not ready yet. Admin must publish exactly 10 questions.');
+  const {data:i,error:ie}=await sb.from('internships').select('id').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).single();if(ie)throw ie;
+  const {data:attempt,error:ae}=await sb.from('final_test_attempts').insert({test_id:testId,internship_id:i.id,student_id:state.user.id,status:'started'}).select('id').single();if(ae)throw ae;
+  document.getElementById('main').innerHTML=head('Lecture Test',esc(test.title)+' · 10 Questions · '+esc(String(test.pass_percentage||60))+'% to pass')+
+  '<div class="card"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><div><b>Test Instructions</b><div class="muted">Answer all 10 questions. Your result will be calculated automatically.</div></div><span class="badge orange">10 Marks</span></div><form id="lectureTestForm" style="margin-top:12px">'+
+  q.map((x,idx)=>'<div class="card" style="margin-top:12px"><b>Q'+(idx+1)+'. '+esc(x.question_text)+'</b><div style="margin-top:10px">'+(Array.isArray(x.options)?x.options:[]).map((o,oi)=>'<label style="display:block;padding:10px;border:1px solid #e5e7eb;border-radius:9px;margin:7px 0;cursor:pointer"><input type="radio" name="q_'+x.id+'" value="'+esc(o).replace(/"/g,'&quot;')+'" required> <b>'+String.fromCharCode(65+oi)+'.</b> '+esc(o)+'</label>').join('')+'</div></div>').join('')+
+  '</form><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:18px"><button class="btn btn-primary" onclick="submitLectureTest(\''+testId+'\',\''+attempt.id+'\')">Submit Test</button><button class="btn btn-soft" onclick="go(\'tests\')">Back to My Tests</button></div></div>';
+ }catch(e){toast(e.message||'Unable to start test');go('tests');}
+}
 sb.auth.onAuthStateChange((event,session)=>{if(event==='SIGNED_OUT'){if(!isPasswordRecoveryUrl())login();return}if(event==='PASSWORD_RECOVERY'&&session){showPasswordRecovery()}});
 login();
 boot();
+
 </script></body></html>
