@@ -651,8 +651,8 @@ async function training(){
   '<div class="field full"><label>Description</label><textarea id="tl_desc" rows="3"></textarea></div>'+
   '<button class="btn btn-primary" onclick="saveTrainingLecture()">Publish Lecture</button></div></div>'+
   '<div class="card"><b>Training rule</b><p class="muted">One daily lecture per sector. Students see only their sector. Previous lectures remain available and future lectures stay locked.</p><p class="muted">Attendance is recorded after verified lecture completion.</p></div></div>'+
-  '<div class="card" style="margin-top:16px"><b>All Lectures</b><div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>Date</th><th>Sector</th><th>Lecture</th><th>Duration</th><th>Status</th></tr></thead><tbody>'+
-  ((lectures||[]).map(x=>'<tr><td>'+esc(x.lecture_date)+'</td><td>'+esc(x.internship_sectors&&x.internship_sectors.name||'')+'</td><td>'+esc(x.title)+'</td><td>'+Math.ceil(Number(x.duration_seconds||0)/60)+' min</td><td>'+(x.is_active?'Published':'Unpublished')+'</td></tr>').join('')||'<tr><td colspan="5" class="empty">No lectures uploaded yet.</td></tr>')+
+  '<div class="card" style="margin-top:16px"><b>All Lectures</b><p class="muted">Uploaded videos use the portal's own player. Old YouTube lectures can be replaced here.</p><div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>Date</th><th>Sector</th><th>Lecture</th><th>Duration</th><th>Video</th><th>Status</th><th>Action</th></tr></thead><tbody>'+
+  ((lectures||[]).map(x=>'<tr><td>'+esc(x.lecture_date)+'</td><td>'+esc(x.internship_sectors&&x.internship_sectors.name||'')+'</td><td>'+esc(x.title)+'</td><td>'+Math.ceil(Number(x.duration_seconds||0)/60)+' min</td><td>'+((String(x.video_url||'').startsWith('storage:'))?'Portal Video':'YouTube / External')+'</td><td>'+(x.is_active?'Published':'Unpublished')+'</td><td><button class="btn btn-secondary" onclick="replaceTrainingVideo(\''+x.id+'\')">Replace Video</button></td></tr>').join('')||'<tr><td colspan="7" class="empty">No lectures uploaded yet.</td></tr>')+
   '</tbody></table></div></div>';return;
  }
  return studentTraining();
@@ -670,6 +670,21 @@ async function saveTrainingLecture(){try{
  if(error){await sb.storage.from('training-videos').remove([path]);throw error}
  toast('Lecture uploaded and published successfully');training();
 }catch(e){toast(e.message||'Unable to publish lecture')}}
+async function replaceTrainingVideo(lectureId){
+ const input=document.createElement('input');input.type='file';input.accept='video/mp4,video/webm,video/quicktime';input.style.display='none';document.body.appendChild(input);
+ input.onchange=async()=>{try{
+  const file=input.files?.[0];if(!file)return;
+  if(file.size>200*1024*1024)throw Error('Video file must be 200 MB or smaller.');
+  if(!['video/mp4','video/webm','video/quicktime'].includes(file.type))throw Error('Please upload an MP4, WebM or MOV video.');
+  const {data:lecture,error:le}=await sb.from('training_lectures').select('video_url').eq('id',lectureId).single();if(le)throw le;
+  const ext=(file.name.split('.').pop()||'mp4').toLowerCase(),path='lectures/'+crypto.randomUUID()+'.'+ext;
+  const {error:ue}=await sb.storage.from('training-videos').upload(path,file,{contentType:file.type,upsert:false,cacheControl:'3600'});if(ue)throw ue;
+  const {error:up}=await sb.from('training_lectures').update({video_url:'storage:'+path}).eq('id',lectureId);if(up){await sb.storage.from('training-videos').remove([path]);throw up}
+  const oldPath=String(lecture?.video_url||'').startsWith('storage:')?String(lecture.video_url).slice(8):'';
+  if(oldPath)await sb.storage.from('training-videos').remove([oldPath]);
+  toast('Lecture video replaced successfully');training();
+ }catch(e){toast(e.message||'Unable to replace video')}finally{input.remove()}};input.click();
+}
 function youtubeVideoId(url){
  try{
   const u=new URL(String(url||''));
