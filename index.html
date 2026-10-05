@@ -667,6 +667,23 @@ async function issueCertificate(){
   certificate()
  }
 }
+async function autoGenerateCertificate(){
+ try{
+  if(state.role!=='admin')throw Error('Only SHIVORIX Admin can auto-generate certificates.');
+  const studentId=document.getElementById('manualCertStudent')?.value;
+  if(!studentId)throw Error('First search and select a student.');
+  const {data:i,error:ie}=await sb.from('internships').select('*').eq('student_id',studentId).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle();
+  if(ie)throw ie;
+  if(!i)throw Error('No active/completed internship found for this student.');
+  const {data:existing}=await sb.from('certificates').select('id,status').eq('internship_id',i.id).maybeSingle();
+  if(existing?.id){
+   return toast('Certificate already exists for this internship. Use the existing Certificate record.');
+  }
+  const intEl=document.getElementById('certInt');if(intEl)intEl.value=i.id;
+  const domEl=document.getElementById('certDomain');if(domEl&&!domEl.value)domEl.value=i.domain||'';
+  await issueCertificate();
+ }catch(e){toast(e.message||'Unable to auto-generate certificate')}
+}
 async function printCertificate(id){const {data:c}=await sb.from('certificates').select('*,profiles(full_name,college_name)').eq('id',id).single();if(!c)return;const w=window.open('','_blank');if(!w)return toast('Allow pop-ups.');w.document.write('<!doctype html><html><head><title>'+esc(c.certificate_number)+'</title><style>body{font-family:Georgia,serif;background:#f4f1ea;padding:40px}.cert{max-width:900px;margin:auto;background:#fff;padding:70px;border:12px double #6d28d9;text-align:center}h1{color:#6d28d9;font-size:42px}h2{font-size:30px}.meta{margin-top:35px;display:flex;justify-content:space-between;font-size:12px}</style></head><body><div class="cert"><b>SHIVORIX PVT. LTD.</b><h1>INTERNSHIP COMPLETION CERTIFICATE</h1><p>This is to certify that</p><h2>'+esc(c.profiles?.full_name||'Student')+'</h2><p>has successfully completed the internship in <b>'+esc(c.domain)+'</b> for <b>'+c.total_hours+' hours</b> and <b>'+c.credits+' credits</b>.</p><p>Certificate No.: <b>'+esc(c.certificate_number)+'</b></p><div class="meta"><span>Issued: '+c.issued_date+'</span><span>Verification: '+c.verification_token+'</span></div></div><script>window.print()<\/script></body></html>');w.document.close()}
 async function reports(){const {count:st}=await sb.from('profiles').select('*',{count:'exact',head:true}).eq('role','student');const {count:ap}=await sb.from('internship_applications').select('*',{count:'exact',head:true});const {count:it}=await sb.from('internships').select('*',{count:'exact',head:true});const {count:ce}=await sb.from('certificates').select('*',{count:'exact',head:true});document.getElementById('main').innerHTML=head('Reports','Live operational summary')+'<div class="grid stats"><div class="card stat"><div class="label">Students</div><div class="value">'+(st||0)+'</div></div><div class="card stat"><div class="label">Applications</div><div class="value">'+(ap||0)+'</div></div><div class="card stat"><div class="label">Internships</div><div class="value">'+(it||0)+'</div></div><div class="card stat"><div class="label">Certificates</div><div class="value">'+(ce||0)+'</div></div></div><div class="card" style="margin-top:16px"><button class="btn btn-primary" onclick="exportApplications()">Export Applications CSV</button> <button class="btn btn-soft" onclick="exportStudents()">Export Students CSV</button></div>'}
 async function exportApplications(){const {data}=await sb.from('internship_applications').select('application_number,student_id,college_id,sector_id,mode,requested_hours,requested_credits,status,node_review_status,payment_status,created_at');downloadCsv('applications.csv',data||[])}
@@ -796,7 +813,7 @@ async function certificate(){
    const {data:students,error:se}=await sb.from('profiles').select('id,full_name,college_name,college_roll_number,university_registration_number').eq('role','student').order('full_name');if(se)throw se;
    const ss=(students||[]).filter(x=>!search||[x.full_name,x.college_name,x.college_roll_number,x.university_registration_number].some(v=>String(v||'').toLowerCase().includes(search)));
    html+='<div class="grid two" style="margin-top:12px"><div class="field"><label>Select Student for Manual Upload</label><select id="manualCertStudent">'+(ss.length?ss.map(x=>'<option value="'+x.id+'">'+esc(x.full_name)+' — '+esc(x.college_roll_number||x.university_registration_number||x.college_name||'')+'</option>').join(''):'<option value="">No matching student</option>')+'</select></div><div class="field"><label>Document Type</label><select id="manualCertType"><option>Internship Certificate</option><option>Performance Marksheet</option></select></div></div><div class="field" style="margin-top:12px"><label>Upload Certificate / Marksheet</label><input id="manualCertFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.html"></div><button class="btn btn-primary" style="margin-top:12px" onclick="adminUploadCertificate()">Upload to Student Certificate Section</button>';
-   html+='<div class="form two-col" style="margin-top:18px"><div class="field"><label>Internship ID for Completion</label><input id="certInt" placeholder="Enter internship ID"></div><div class="field"><label>Domain (optional)</label><input id="certDomain" placeholder="Use assigned internship domain if blank"></div></div><button class="btn btn-primary" style="margin-top:12px" onclick="issueCertificate()">Complete Internship & Generate Certificate + Marksheet</button>';
+   html+='<div class="form two-col" style="margin-top:18px"><div class="field"><label>Internship ID for Completion</label><input id="certInt" placeholder="Enter internship ID"></div><div class="field"><label>Domain (optional)</label><input id="certDomain" placeholder="Use assigned internship domain if blank"></div></div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px"><button class="btn btn-primary" onclick="issueCertificate()">Complete Internship & Generate Certificate + Marksheet</button><button class="btn btn-soft" onclick="autoGenerateCertificate()">⚡ Auto Generate for Selected Student</button></div><div class="alert" style="margin-top:10px">Auto Generate uses the selected student’s latest active/completed internship. Attendance and final evaluation requirements still apply.</div>';
   }
   html+='</div>';
  }
