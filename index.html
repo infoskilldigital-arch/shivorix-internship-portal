@@ -597,10 +597,7 @@ async function documents(){
   q=ids.length?q.in('student_id',ids):q.eq('student_id','00000000-0000-0000-0000-000000000000');
  }
  const {data,error}=await q;if(error)throw error;
- state.documentRows=(data||[]);
- if(state.role==='student'){
-  state.documentRows=state.documentRows.filter(x=>!['Internship Certificate','Performance Marksheet'].includes(x.document_type)||x.verification_status==='verified');
- }
+ state.documentRows=(data||[]).filter(x=>!['Internship Certificate','Performance Marksheet'].includes(x.document_type));
  renderDocuments(state.documentRows);
 }
 function renderDocuments(rows){
@@ -811,7 +808,7 @@ async function adminUploadCertificate(){
   const safe=String(file.name||'document').replace(/[^a-zA-Z0-9._-]+/g,'_');
   const path=studentId+'/certificates/'+Date.now()+'_'+safe;
   const {error:up}=await sb.storage.from('student-documents').upload(path,file,{contentType:file.type||'application/octet-stream',upsert:false,cacheControl:'3600'});if(up)throw up;
-  const {error:db}=await sb.from('student_documents').insert({student_id:studentId,college_id:p.college_id||null,document_type:type,document_title:type+' - '+(p.full_name||'Student'),file_path:path,mime_type:file.type||'application/octet-stream',file_size:file.size,uploaded_by:state.user.id,verification_status:'verified',remarks:'Manually uploaded by SHIVORIX Admin'});
+  const {error:db}=await sb.from('student_documents').insert({student_id:studentId,college_id:p.college_id||null,document_type:type,document_title:type+' - '+(p.full_name||'Student'),file_path:path,mime_type:file.type||'application/octet-stream',file_size:file.size,uploaded_by:state.user.id,verification_status:'pending',remarks:'Uploaded by SHIVORIX Admin; pending verification'});
   if(db){await sb.storage.from('student-documents').remove([path]);throw db}
   toast('Certificate/marksheet uploaded to the student Certificate section.');certificate();
  }catch(e){toast(e.message||'Unable to upload certificate')}
