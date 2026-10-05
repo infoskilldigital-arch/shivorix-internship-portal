@@ -314,7 +314,7 @@ async function finalTest(){
   if(!data.available){document.getElementById('main').innerHTML=head('Final Test','Final assessment')+'<div class="card"><h3>Not Published Yet</h3><p class="muted">'+esc(data.message||'The Final Test will appear here when SHIVORIX publishes it.')+'</p></div>';return}
   finalTestState.data={...data,internshipId:i.id};
   const a=data.attempt;
-  if(a?.submitted_at){document.getElementById('main').innerHTML=head('Final Test Result','Your submitted assessment result')+'<div class="card"><h2>'+esc(a.percentage??0)+'%</h2><p><b>'+((a.passed)?'Passed':'Not Passed')+'</b></p><p class="muted">Score: '+esc(a.score??0)+' / '+esc(data.test.total_marks)+'</p></div>';return}
+  if(a?.submitted_at){document.getElementById('main').innerHTML=head('Final Test Result','Your submitted assessment result')+'<div class="card"><h2>'+esc(a.percentage??0)+'%</h2><p><b>'+((a.passed)?'Passed':'Not Passed')+'</b></p><p class="muted">Your score has been recorded.</p></div>';return}
   if(a){renderFinalTest(a,data);return}
   document.getElementById('main').innerHTML=head('Final Test','Final assessment after 30 days')+'<div class="card"><h2>'+esc(data.test.title)+'</h2><p>'+esc(data.test.duration_minutes)+' minutes · Passing: '+esc(data.test.pass_percentage)+'%</p><p class="muted">Once you start, the attempt will be recorded. Submit before the timer ends.</p><button class="btn btn-primary" onclick="startFinalTest()">Start Final Test</button></div>';
  }catch(e){document.getElementById('main').innerHTML=head('Final Test','Final assessment')+'<div class="card"><div class="alert">'+esc(e.message||'Unable to load Final Test.')+'</div></div>'}
