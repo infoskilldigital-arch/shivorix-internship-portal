@@ -296,6 +296,14 @@ async function finalTest(){
   const {data:i,error:ie}=await sb.from('internships').select('id,start_date,status').eq('student_id',state.user.id).order('created_at',{ascending:false}).limit(1).maybeSingle();
   if(ie)throw ie;
   if(!i){document.getElementById('main').innerHTML=head('Final Test','Final assessment after the internship period')+'<div class="card empty">Your Final Test will appear here after an internship is activated.</div>';return}
+  const start=new Date(i.start_date+'T00:00:00');
+  const unlock=new Date(start); unlock.setDate(unlock.getDate()+30);
+  const now=new Date();
+  if(!Number.isNaN(start.getTime()) && now<unlock){
+    const days=Math.max(0,Math.ceil((unlock-now)/86400000));
+    document.getElementById('main').innerHTML=head('Final Test','Final assessment after 30 days')+'<div class="card"><h3>Final Test Locked</h3><p>Your Final Test unlocks after 30 days from <b>'+esc(i.start_date)+'</b>.</p><div class="badge orange">'+days+' day(s) remaining</div></div>';
+    return;
+  }
   const {data,error}=await sb.functions.invoke('final-test-api',{body:{action:'get_test',internship_id:i.id}});
   if(error){
    const detail=error?.context?.json?.error||error?.message||'Unable to load Final Test.';
