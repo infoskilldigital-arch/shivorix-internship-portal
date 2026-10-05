@@ -405,9 +405,11 @@ async function activities(){
  }
  const {data,error}=await sb.from('internship_activity_logs').select('*,student_profile:profiles!internship_activity_logs_student_id_fkey(full_name,college_name,university_registration_number,college_roll_number)').order('activity_date',{ascending:false}).order('created_at',{ascending:false});
  if(error)throw error;
- document.getElementById('main').innerHTML=head('Activities / Log Book','Review daily internship work records from your permitted students')+
+ const canReviewActivities=state.role==='admin';
+ document.getElementById('main').innerHTML=head('Activities / Log Book',canReviewActivities?'Review daily internship work records':'View daily internship work records from your permitted students')+
+  (canReviewActivities?'<div class="alert" style="margin-bottom:14px">SHIVORIX Admin can review or return activities. Nodal Officers have view-only access.</div>':'<div class="alert" style="margin-bottom:14px">Nodal Officer access is view-only. Review and Return actions are available only to SHIVORIX Admin.</div>')+
   '<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Date</th><th>Activity</th><th>Hours</th><th>Outcome</th><th>Evidence</th><th>Status</th><th>Action</th></tr></thead><tbody>'+
-  ((data||[]).map(x=>'<tr><td><b>'+esc(x.student_profile?.full_name||'—')+'</b><br><small class="muted">'+esc(x.student_profile?.college_roll_number||x.student_profile?.university_registration_number||'')+'</small></td><td>'+esc(x.activity_date||'—')+'</td><td><b>'+esc(x.activity||'—')+'</b>'+(x.description?'<br><small class="muted">'+esc(x.description)+'</small>':'')+'</td><td>'+Number(x.hours_worked||0).toFixed(2)+'</td><td>'+esc(x.learning_outcome||'—')+'</td><td>'+(x.evidence_path?'<button class="btn btn-soft" onclick="openActivityEvidence('+JSON.stringify(x.evidence_path)+')">View File</button>':'—')+'</td><td><span class="badge '+(x.status==='reviewed'?'green':x.status==='returned'?'orange':'')+'">'+esc(x.status||'submitted')+'</span></td><td>'+(x.status==='submitted'||x.status==='returned'?'<button class="btn btn-primary" onclick="reviewActivityLog(&quot;'+x.id+'&quot;,&quot;reviewed&quot;)">Review</button> <button class="btn btn-soft" onclick="reviewActivityLog(&quot;'+x.id+'&quot;,&quot;returned&quot;)">Return</button>':'—')+'</td></tr>').join('')||'<tr><td colspan="8" class="empty">No internship activities found.</td></tr>')+
+  ((data||[]).map(x=>'<tr><td><b>'+esc(x.student_profile?.full_name||'—')+'</b><br><small class="muted">'+esc(x.student_profile?.college_roll_number||x.student_profile?.university_registration_number||'')+'</small></td><td>'+esc(x.activity_date||'—')+'</td><td><b>'+esc(x.activity||'—')+'</b>'+(x.description?'<br><small class="muted">'+esc(x.description)+'</small>':'')+'</td><td>'+Number(x.hours_worked||0).toFixed(2)+'</td><td>'+esc(x.learning_outcome||'—')+'</td><td>'+(x.evidence_path?'<button class="btn btn-soft" onclick="openActivityEvidence('+JSON.stringify(x.evidence_path)+')">View File</button>':'—')+'</td><td><span class="badge '+(x.status==='reviewed'?'green':x.status==='returned'?'orange':'')+'">'+esc(x.status||'submitted')+'</span></td><td>'+(canReviewActivities&&(x.status==='submitted'||x.status==='returned')?'<button class="btn btn-primary" onclick="reviewActivityLog(&quot;'+x.id+'&quot;,&quot;reviewed&quot;)">Review</button> <button class="btn btn-soft" onclick="reviewActivityLog(&quot;'+x.id+'&quot;,&quot;returned&quot;)">Return</button>':'—')+'</td></tr>').join('')||'<tr><td colspan="8" class="empty">No internship activities found.</td></tr>')+
   '</tbody></table></div></div>';
 }
 async function openActivityEvidence(path){
@@ -465,7 +467,7 @@ async function saveActivityLog(){
 }
 async function reviewActivityLog(id,status){
  try{
-  if(state.role!=='node_officer'&&state.role!=='admin')throw Error('You are not allowed to review activities.');
+  if(state.role!=='admin')throw Error('Only SHIVORIX Admin can review or return activities.');
   const feedback=prompt(status==='reviewed'?'Mentor / reviewer feedback (optional):':'What needs correction? (optional):','')||null;
   const {error}=await sb.from('internship_activity_logs').update({status,mentor_feedback:feedback,reviewed_by:state.user.id,reviewed_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',id);
   if(error)throw error;
