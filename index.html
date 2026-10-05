@@ -661,7 +661,7 @@ async function issueCertificate(){
  const {data:e}=await sb.from('evaluations').select('overall_score').eq('internship_id',id).maybeSingle();
  if(hours<Number(i.total_hours))return toast('Required attendance hours are not complete.');
  if(!e)return toast('Final evaluation is required.');
- const token=crypto.randomUUID(),num='SHX-CERT-'+new Date().getFullYear()+'-'+Math.random().toString(36).slice(2,8).toUpperCase();
+ const token=crypto.randomUUID();const {count:certCount}=await sb.from('certificates').select('*',{count:'exact',head:true});const seq=String(Number(certCount||0)+1).padStart(3,'0');const year=new Date().getFullYear();const num='SHIV/INT/'+year+'/'+seq;
  const {data:c,error}=await sb.from('certificates').insert({internship_id:id,student_id:i.student_id,certificate_number:num,domain:document.getElementById('certDomain').value.trim()||i.domain,start_date:i.start_date,end_date:i.end_date,total_hours:i.total_hours,credits:i.credits,issued_date:new Date().toISOString().slice(0,10),verification_token:token,status:'issued',certificate_url:SUPABASE_URL+'/functions/v1/certificate-verify?token='+token}).select('id').single();
  if(error)toast(error.message);else{
   await sb.from('internships').update({status:'completed'}).eq('id',id);
