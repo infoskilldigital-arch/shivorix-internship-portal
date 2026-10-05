@@ -647,41 +647,83 @@ async function logout(){await sb.auth.signOut();state={user:null,profile:null,ro
 async function nodePage(){const [{data},{data:collegesData}]=await Promise.all([sb.from('node_officers').select('*,profiles(full_name,email)').order('college_name'),sb.from('colleges').select('id,name,university_name').eq('is_active',true).order('name')]);document.getElementById('main').innerHTML=head('Node Officers','Create and assign college-level internship coordinators')+`<div class="card"><b>Create Node Officer</b><div class="form two-col" style="margin-top:14px"><div class="field"><label>Full Name *</label><input id="nname" placeholder="Node Officer name"></div><div class="field"><label>Official Email *</label><input id="nemail" type="email" placeholder="official@email.com"></div><div class="field"><label>Temporary Password *</label><input id="npass" type="password" minlength="8" placeholder="Minimum 8 characters"></div><div class="field"><label>Mobile</label><input id="nmobile" placeholder="Mobile number"></div><div class="field"><label>Node Officer Code *</label><input id="ncode" placeholder="RDS-NO-01"></div><div class="field"><label>Assigned College *</label><select id="ncollege">${(collegesData||[]).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')||'<option value="">Create a college first</option>'}</select></div></div><button class="btn btn-primary" style="margin-top:14px" onclick="createNodeOfficer()">Create & Assign Node Officer</button></div><div class="card" style="margin-top:16px"><div class="table-wrap"><table class="table"><thead><tr><th>Code</th><th>Officer</th><th>College</th><th>Email</th><th>Designation</th><th>Status</th></tr></thead><tbody>${(data||[]).map(x=>`<tr><td>${esc(x.node_code)}</td><td>${esc(x.student_profile?.full_name||'—')}</td><td>${esc(x.college_name)}</td><td>${esc(x.student_profile?.email||'—')}</td><td>${esc(x.designation||'Node Officer')}</td><td><span class="badge ${x.is_active?'green':'red'}">${x.is_active?'Active':'Inactive'}</span></td></tr>`).join('')||'<tr><td colspan="6" class="empty">No Node Officers found.</td></tr>'}</tbody></table></div></div>`}
 async function createNodeOfficer(){try{if(!document.getElementById('ncollege').value)throw Error('Select a college first.');await adminAction('create_staff',{role:'node_officer',full_name:document.getElementById('nname').value,email:document.getElementById('nemail').value,password:document.getElementById('npass').value,mobile:document.getElementById('nmobile').value,node_code:document.getElementById('ncode').value,college_id:document.getElementById('ncollege').value});toast('Node Officer created and assigned');nodePage()}catch(e){toast(e.message||'Unable to create Node Officer')}}
 async function internships(){const {data}=await sb.from('internships').select('*').order('created_at',{ascending:false});document.getElementById('main').innerHTML=head('Internships','Activated and completed internship records')+`<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Application</th><th>Domain</th><th>Mode</th><th>Hours</th><th>Credits</th><th>Status</th></tr></thead><tbody>${(data||[]).map(x=>`<tr><td>${esc(x.application_id)}</td><td>${esc(x.domain)}</td><td>${x.mode}</td><td>${x.total_hours}</td><td>${x.credits}</td><td>${x.status}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">No internship records.</td></tr>'}</tbody></table></div></div>`}
-async function finalTestAdmin(){
+async function finalTestAdmin(sectorId){
  try{
   if(state.role!=='admin')throw Error('Only Admin can manage the Final Test.');
-  const {data:lectures,error:le}=await sb.from('training_lectures').select('id,title,description,internship_sectors(name)').eq('is_active',true).order('lecture_date').order('sequence_no');if(le)throw le;
-  let html=head('Final Test','AI-generated final assessment for the internship')+'<div class="card"><div class="alert"><b>Workflow:</b> AI generates the Final Test from the internship lectures and their tests → Admin reads all questions → Approve & Publish → students can attempt it.</div><button class="btn btn-primary" onclick="generateFinalTestAI()">🤖 Generate Final Test with AI</button></div>';
-  const {data:ft,error:fe}=await sb.from('final_tests').select('*').is('lecture_id',null).order('created_at',{ascending:false}).limit(1).maybeSingle();if(fe)throw fe;
-  if(ft){const {data:q}=await sb.from('final_test_questions').select('*').eq('test_id',ft.id).order('sequence_no');html+='<div class="card" style="margin-top:16px"><div style="display:flex;justify-content:space-between"><b>'+esc(ft.title)+'</b><span class="badge '+(ft.admin_reviewed?'green':'orange')+'">'+(ft.admin_reviewed?'Approved & Published':'Draft — Read & Approve Required')+'</span></div><div class="alert"><b>👁 Read & Review Final Test</b><div class="muted">Check all generated questions, options and correct answers before publishing.</div></div>'+(q||[]).map((x,i)=>'<div style="margin-top:12px;padding:12px;border:1px solid #e5e7eb;border-radius:12px"><b>Q'+(i+1)+'. '+esc(x.question_text)+'</b><div class="muted">A) '+esc(x.options?.[0]||'')+' · B) '+esc(x.options?.[1]||'')+' · C) '+esc(x.options?.[2]||'')+' · D) '+esc(x.options?.[3]||'')+'</div><div style="color:#166534;margin-top:5px">Correct: '+esc(x.correct_answer)+'</div></div>').join('')+(ft.admin_reviewed?'<div class="alert" style="margin-top:16px">✓ Final Test approved and published for students.</div>':'<div class="alert" style="margin-top:16px"><button class="btn btn-primary" onclick="approveFinalTestAI(\''+ft.id+'\')">✓ Mark Final Test Read & Approve / Publish</button></div>')+'</div>';}
-  html+='<div class="card" style="margin-top:16px"><b>Source Lectures</b><div class="table-wrap"><table class="table"><thead><tr><th>Lecture</th><th>Sector</th></tr></thead><tbody>'+((lectures||[]).map(l=>'<tr><td>'+esc(l.title)+'</td><td>'+esc(l.internship_sectors?.name||'')+'</td></tr>').join('')||'<tr><td colspan="2">No active lectures.</td></tr>')+'</tbody></table></div></div><button class="btn btn-soft" style="margin-top:16px" onclick="go(\'training\')">Back to Training</button>';
+  const {data:sectors,error:se}=await sb.from('internship_sectors').select('id,name').eq('is_active',true).order('name');if(se)throw se;
+  const selected=sectorId||(sectors?.[0]?.id);
+  let html=head('Final Test','Sector-wise final assessment')+'<div class="card"><div class="alert"><b>Final Test Workflow:</b> Select a sector → create AI or Manual 40-question draft → read/check all questions → Approve & Publish. Students will see only the test for their own internship sector.</div><div class="field"><label>Select Internship Sector *</label><select id="final_sector" onchange="finalTestAdmin(this.value)"><option value="">Select Sector</option>'+((sectors||[]).map(x=>'<option value="'+x.id+'" '+(x.id===selected?'selected':'')+'>'+esc(x.name)+'</option>').join(''))+'</select></div>'+(selected?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px"><button class="btn btn-primary" onclick="generateFinalTestAI(\''+selected+'\')">🤖 Generate AI Final Test (40 Questions)</button><button class="btn btn-soft" onclick="manualFinalTest(\''+selected+'\')">✍️ Create Final Test Manually (40 Questions)</button></div>':'')+'</div>';
+  if(selected){
+   const {data:sector}=await sb.from('internship_sectors').select('id,name').eq('id',selected).single();if(!sector)throw Error('Sector not found.');
+   const {data:ft,error:fe}=await sb.from('final_tests').select('*').is('lecture_id',null).eq('sector_id',selected).order('created_at',{ascending:false}).limit(1).maybeSingle();if(fe)throw fe;
+   if(ft){
+    const {data:q}=await sb.from('final_test_questions').select('*').eq('test_id',ft.id).order('sequence_no');
+    html+='<div class="card" style="margin-top:16px"><div style="display:flex;justify-content:space-between;gap:10px"><div><b>'+esc(sector.name)+'</b><div class="muted">'+esc(ft.title)+'</div></div><span class="badge '+(ft.admin_reviewed?'green':'orange')+'">'+(ft.admin_reviewed?'Approved & Published':'Draft — Read & Approve Required')+'</span></div><div class="alert" style="margin-top:14px"><b>👁 Read & Review Final Test</b><div class="muted">Check every question, all options and correct answers before publishing this sector's test.</div></div>'+(q||[]).map((x,i)=>'<div style="margin-top:12px;padding:12px;border:1px solid #e5e7eb;border-radius:12px"><b>Q'+(i+1)+'. '+esc(x.question_text)+'</b><div class="muted">A) '+esc(x.options?.[0]||'')+' · B) '+esc(x.options?.[1]||'')+' · C) '+esc(x.options?.[2]||'')+' · D) '+esc(x.options?.[3]||'')+'</div><div style="color:#166534;margin-top:5px">Correct: '+esc(x.correct_answer)+'</div></div>').join('')+(ft.admin_reviewed?'<div class="alert" style="margin-top:16px">✓ Approved & published for <b>'+esc(sector.name)+'</b> students.</div>':'<div class="alert" style="margin-top:16px"><button class="btn btn-primary" onclick="approveFinalTestAI(\''+ft.id+'\',\''+selected+'\')">✓ Mark Test Read & Approve / Publish</button></div>')+'</div>';
+   }
+  }
+  html+='<button class="btn btn-soft" style="margin-top:16px" onclick="go(\'training\')">Back to Training</button>';
   document.getElementById('main').innerHTML=html;
  }catch(e){toast(e.message||'Unable to load Final Test')}
 }
-async function generateFinalTestAI(){
+async function generateFinalTestAI(sectorId){
  try{
   if(state.role!=='admin')throw Error('Only Admin can generate the Final Test.');
-  const {data:lectures,error:le}=await sb.from('training_lectures').select('id,title,description,internship_sectors(name)').eq('is_active',true).order('lecture_date').order('sequence_no');if(le)throw le;
-  const ids=(lectures||[]).map(x=>x.id);if(!ids.length)throw Error('No active lectures found.');
-  const {data:q,error:qe}=await sb.from('final_test_questions').select('question_text,options,correct_answer,final_tests!inner(lecture_id)').in('final_tests.lecture_id',ids).eq('is_active',true).limit(100);if(qe)throw qe;
-  const source=(lectures||[]).map(l=>'Lecture: '+l.title+'\nSector: '+(l.internship_sectors?.name||'')+'\nDescription: '+(l.description||'')).join('\n\n')+'\n\nLecture test questions:\n'+(q||[]).map(x=>x.question_text+' | '+JSON.stringify(x.options)+' | Correct: '+x.correct_answer).join('\n');
-  toast('AI is generating the Final Test draft...');
+  if(!sectorId)throw Error('Select a sector first.');
+  const {data:sector,error:se}=await sb.from('internship_sectors').select('id,name').eq('id',sectorId).single();if(se)throw se;
+  const {data:lectures,error:le}=await sb.from('training_lectures').select('id,title,description,sector_id').eq('is_active',true).eq('sector_id',sectorId).order('lecture_date').order('sequence_no');if(le)throw le;
+  if(!lectures?.length)throw Error('No active lectures found for this sector.');
+  const ids=lectures.map(x=>x.id);
+  const {data:q,error:qe}=await sb.from('final_test_questions').select('question_text,options,correct_answer,test_id,final_tests!inner(lecture_id)').in('final_tests.lecture_id',ids).eq('is_active',true).limit(200);if(qe)throw qe;
+  const source=lectures.map(l=>'Lecture: '+l.title+'\nDescription: '+(l.description||'')).join('\n\n')+'\n\nLecture test questions:\n'+(q||[]).map(x=>x.question_text+' | '+JSON.stringify(x.options)+' | Correct: '+x.correct_answer).join('\n');
+  if(source.length<80)throw Error('Not enough lecture content is available for this sector.');
+  toast('AI is generating the '+sector.name+' Final Test draft...');
   const rr=await fetch('/api/generate-final-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceText:source})});const body=await rr.json();if(!rr.ok)throw Error(body.error||'Final Test generation failed.');
-  const {data:old}=await sb.from('final_tests').select('id').is('lecture_id',null).eq('is_active',true).maybeSingle();if(old)await sb.from('final_tests').update({is_active:false}).eq('id',old.id);
-  const {data:test,error:te}=await sb.from('final_tests').insert({title:'AI Final Internship Assessment',lecture_id:null,sector_id:null,duration_minutes:30,pass_percentage:60,total_marks:40,is_active:false,admin_reviewed:false,created_by:state.user.id}).select('id').single();if(te)throw te;
+  const {data:old}=await sb.from('final_tests').select('id').is('lecture_id',null).eq('sector_id',sectorId).eq('is_active',true).maybeSingle();if(old)await sb.from('final_tests').update({is_active:false}).eq('id',old.id);
+  const {data:test,error:te}=await sb.from('final_tests').insert({title:'Final Internship Test — '+sector.name,lecture_id:null,sector_id:sectorId,duration_minutes:30,pass_percentage:60,total_marks:40,is_active:false,admin_reviewed:false,created_by:state.user.id}).select('id').single();if(te)throw te;
   const rows=body.questions.map((x,i)=>({test_id:test.id,question_text:x.question_text,question_type:'mcq',options:x.options,correct_answer:x.correct_answer,marks:1,sequence_no:i+1,is_active:true}));
   const {error:qe2}=await sb.from('final_test_questions').insert(rows);if(qe2){await sb.from('final_tests').delete().eq('id',test.id);throw qe2;}
-  toast('Final Test draft created. Read all questions and approve it.');finalTestAdmin();
+  toast('AI Final Test draft created. Read and approve it before students can access it.');finalTestAdmin(sectorId);
  }catch(e){toast(e.message||'Unable to generate Final Test')}
 }
-async function approveFinalTestAI(testId){
+async function manualFinalTest(sectorId){
+ try{
+  if(state.role!=='admin')throw Error('Only Admin can create the Final Test.');
+  const {data:s,error:se}=await sb.from('internship_sectors').select('id,name').eq('id',sectorId).single();if(se)throw se;
+  let fields=[];
+  for(let i=1;i<=40;i++)fields.push('<div class="card" style="margin-top:12px"><b>Question '+i+'</b><div class="field" style="margin-top:8px"><label>Question *</label><textarea id="fq_'+i+'" rows="2"></textarea></div><div class="grid two" style="margin-top:8px"><div class="field"><label>Option A *</label><input id="fo_'+i+'_1"></div><div class="field"><label>Option B *</label><input id="fo_'+i+'_2"></div><div class="field"><label>Option C *</label><input id="fo_'+i+'_3"></div><div class="field"><label>Option D *</label><input id="fo_'+i+'_4"></div></div><div class="field" style="margin-top:8px"><label>Correct Answer *</label><select id="fc_'+i+'"><option value="">Select correct option</option><option value="1">A</option><option value="2">B</option><option value="3">C</option><option value="4">D</option></select></div></div>');
+  document.getElementById('main').innerHTML=head('Create Final Test Manually','40 questions — '+esc(s.name))+'<div class="card"><div class="alert">This is a draft for <b>'+esc(s.name)+'</b>. Students will not see it until you read all 40 questions and approve/publish it.</div>'+fields.join('')+'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px"><button class="btn btn-primary" onclick="saveManualFinalTest(\''+sectorId+'\')">Save 40-Question Draft</button><button class="btn btn-soft" onclick="finalTestAdmin(\''+sectorId+'\')">Back</button></div></div>';
+ }catch(e){toast(e.message||'Unable to open manual Final Test builder')}
+}
+async function saveManualFinalTest(sectorId){
+ try{
+  if(state.role!=='admin')throw Error('Only Admin can save the Final Test.');
+  const {data:s,error:se}=await sb.from('internship_sectors').select('id,name').eq('id',sectorId).single();if(se)throw se;
+  const rows=[];
+  for(let i=1;i<=40;i++){
+   const q=document.getElementById('fq_'+i)?.value.trim();
+   const opts=[1,2,3,4].map(n=>document.getElementById('fo_'+i+'_'+n)?.value.trim());
+   const correct=document.getElementById('fc_'+i)?.value;
+   if(!q||opts.some(x=>!x)||!correct)throw Error('Please complete Question '+i+' with all 4 options and the correct answer.');
+   rows.push({question_text:q,options:opts,correct_answer:opts[Number(correct)-1],sequence_no:i});
+  }
+  const {data:old}=await sb.from('final_tests').select('id').is('lecture_id',null).eq('sector_id',sectorId).eq('is_active',true).maybeSingle();if(old)await sb.from('final_tests').update({is_active:false}).eq('id',old.id);
+  const {data:test,error:te}=await sb.from('final_tests').insert({title:'Final Internship Test — '+s.name,lecture_id:null,sector_id:sectorId,duration_minutes:30,pass_percentage:60,total_marks:40,is_active:false,admin_reviewed:false,created_by:state.user.id}).select('id').single();if(te)throw te;
+  const {error:qe}=await sb.from('final_test_questions').insert(rows.map(x=>({...x,test_id:test.id,question_type:'mcq',marks:1,is_active:true})));if(qe){await sb.from('final_tests').delete().eq('id',test.id);throw qe;}
+  toast('Manual Final Test draft saved. Read all 40 questions and approve it.');finalTestAdmin(sectorId);
+ }catch(e){toast(e.message||'Unable to save manual Final Test')}
+}
+async function approveFinalTestAI(testId,sectorId){
  try{
   if(state.role!=='admin')throw Error('Only Admin can approve the Final Test.');
+  const {data:test,error:te}=await sb.from('final_tests').select('id,sector_id').eq('id',testId).single();if(te)throw te;
+  if(test.sector_id!==sectorId)throw Error('Sector mismatch.');
   const {count,error}=await sb.from('final_test_questions').select('id',{count:'exact',head:true}).eq('test_id',testId).eq('is_active',true);if(error)throw error;
   if(Number(count)!==40)throw Error('Final Test must contain exactly 40 questions.');
+  const {data:active}=await sb.from('final_tests').select('id').is('lecture_id',null).eq('sector_id',sectorId).eq('is_active',true).neq('id',testId);if(active?.length)await sb.from('final_tests').update({is_active:false}).in('id',active.map(x=>x.id));
   const {error:ue}=await sb.from('final_tests').update({is_active:true,admin_reviewed:true,admin_reviewed_at:new Date().toISOString(),admin_reviewed_by:state.user.id}).eq('id',testId);if(ue)throw ue;
-  toast('Final Test approved and published for students.');finalTestAdmin();
- }catch(e){toast(e.message||'Unable to approve Final Test')}
+  toast('Final Test approved and published for '+sectorId+' students.');finalTestAdmin(sectorId);
+}
+catch(e){toast(e.message||'Unable to approve Final Test')}
 }
 async function training(){
  if(state.role==='admin'){
