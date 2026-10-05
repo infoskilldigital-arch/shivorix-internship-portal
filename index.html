@@ -530,12 +530,21 @@ async function evaluations(){
   const em={};(evaluations||[]).forEach(x=>em[x.internship_id]=x);
   let html=head('Evaluations','Internship Performance Assessment')+'<div class="card"><div class="alert"><b>Assessment criteria:</b> Technical Knowledge & Application · Quality of Work & Task Completion · Initiative & Problem Solving Ability · Communication & Interpersonal Skills · Punctuality, Discipline & Professional Conduct.</div></div>';
   html+='<div class="card" style="margin-top:16px"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>College</th><th>Sector</th><th>Status</th><th>Evaluation</th><th>Action</th></tr></thead><tbody>';
-  html+=(internships||[]).map(x=>{const ev=em[x.id];return '<tr><td>'+esc(x.profiles?.full_name||'—')+'</td><td>'+esc(x.profiles?.college_name||'—')+'</td><td>'+esc(x.domain||'—')+'</td><td>'+esc(x.status||'—')+'</td><td>'+(ev?'<span class="badge green">Evaluated</span>':'<span class="badge orange">Pending</span>')+'</td><td>'+((state.role!=='student')?'<button class="btn btn-soft" onclick="openEvaluationForm(\''+x.id+'\')">'+(ev?'Edit Evaluation':'Evaluate')+'</button>':(ev?'View':'—'))+'</td></tr>'}).join('')||'<tr><td colspan="6" class="empty">No internship records found.</td></tr>';
+  html+=(internships||[]).map(x=>{const ev=em[x.id];return '<tr><td>'+esc(x.profiles?.full_name||'—')+'</td><td>'+esc(x.profiles?.college_name||'—')+'</td><td>'+esc(x.domain||'—')+'</td><td>'+esc(x.status||'—')+'</td><td>'+(ev?'<span class="badge green">Evaluated</span>':'<span class="badge orange">Pending</span>')+'</td><td>'+(state.role==='admin'?'<button class="btn btn-soft" onclick="openEvaluationForm(\''+x.id+'\')">'+(ev?'Edit Evaluation':'Evaluate')+'</button>':(ev?'<button class="btn btn-soft" onclick="viewEvaluation(\''+x.id+'\')">View</button>':'<span class="muted">Pending</span>'))+'</td></tr>'}).join('')||'<tr><td colspan="6" class="empty">No internship records found.</td></tr>';
   html+='</tbody></table></div></div>';
   document.getElementById('main').innerHTML=html;
  }catch(e){toast(e.message||'Unable to load evaluations')}
 }
 function evaluationRatingValue(v){return v==='Excellent'?95:v==='Very Good'?85:v==='Good'?75:v==='Satisfactory'?65:50}
+async function viewEvaluation(internshipId){
+ try{
+  const {data:i,error:ie}=await sb.from('internships').select('id,student_id,domain,profiles(full_name,college_name)').eq('id',internshipId).single();if(ie||!i)throw Error('Internship not found.');
+  const {data:ev,error:ee}=await sb.from('evaluations').select('*').eq('internship_id',internshipId).maybeSingle();if(ee)throw ee;
+  if(!ev){document.getElementById('main').innerHTML=head('Evaluation View','No evaluation has been submitted yet.')+'<div class="card empty">Evaluation is pending.</div>';return;}
+  const label=n=>Number(ev[n])>=90?'Excellent':Number(ev[n])>=80?'Very Good':Number(ev[n])>=70?'Good':Number(ev[n])>=60?'Satisfactory':'Needs Improvement';
+  document.getElementById('main').innerHTML=head('Evaluation View',esc(i.profiles?.full_name||'Student')+' · '+esc(i.domain||'Sector'))+'<div class="card"><div class="alert">View-only mode. Nodal Officers can monitor the evaluation but cannot create, edit or save it.</div><div class="grid two"><div><b>1. Technical Knowledge & Application</b><p>'+label('technical_knowledge')+'</p></div><div><b>2. Quality of Work & Task Completion</b><p>'+label('quality_of_work')+'</p></div><div><b>3. Initiative & Problem Solving Ability</b><p>'+label('initiative_problem_solving')+'</p></div><div><b>4. Communication & Interpersonal Skills</b><p>'+label('communication')+'</p></div><div><b>5. Punctuality, Discipline & Professional Conduct</b><p>'+label('discipline_punctuality')+'</p></div><div><b>Overall</b><p>'+esc(String(ev.rating||'—'))+' · '+esc(String(ev.overall_score||0))+'</p></div></div><div class="field" style="margin-top:14px"><label>Supervisor / Head Remarks</label><textarea rows="4" readonly>'+esc(ev.supervisor_remarks||ev.supervisor_remark||'')+'</textarea></div><button class="btn btn-soft" style="margin-top:14px" onclick="evaluations()">Back</button></div>';
+ }catch(e){toast(e.message||'Unable to view evaluation')}
+}
 async function openEvaluationForm(internshipId){
  try{
   const {data:i,error:ie}=await sb.from('internships').select('id,student_id,domain,profiles(full_name,college_name)').eq('id',internshipId).single();if(ie||!i)throw Error('Internship not found.');
@@ -548,7 +557,7 @@ async function openEvaluationForm(internshipId){
 }
 async function saveEvaluation(internshipId,evalId){
  try{
-  if(state.role==='student')throw Error('Students cannot create evaluations.');
+  if(state.role!=='admin')throw Error('Only SHIVORIX Admin can create or edit evaluations.');
   const labels=['ev1','ev2','ev3','ev4','ev5'];const vals=labels.map(id=>document.getElementById(id).value);
   const nums=vals.map(evaluationRatingValue);const overall=nums.reduce((a,b)=>a+b,0)/5;const rating=overall>=90?'Excellent':overall>=80?'Very Good':overall>=70?'Good':overall>=60?'Satisfactory':'Needs Improvement';
   const payload={student_id:null,internship_id:internshipId,technical_knowledge:nums[0],quality_of_work:nums[1],initiative_problem_solving:nums[2],communication:nums[3],discipline_punctuality:nums[4],overall_score:Number(overall.toFixed(2)),rating,supervisor_remarks:document.getElementById('evremarks').value.trim()||null,evaluated_by:state.user.id,evaluated_at:new Date().toISOString()};
