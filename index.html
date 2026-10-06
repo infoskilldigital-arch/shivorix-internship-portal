@@ -745,7 +745,12 @@ async function autoGenerateCertificate(){
   if(!i)throw Error('No active/completed internship found for this student.');
   const {data:existing}=await sb.from('certificates').select('id,status').eq('internship_id',i.id).maybeSingle();
   if(existing?.id){
-   return toast('Certificate already exists for this internship. Use the existing Certificate record.');
+   try{
+    await buildCompletionDocument('certificate',i.id,existing.id);
+    await buildCompletionDocument('marksheet',i.id,existing.id);
+    toast('Certificate already exists. Missing Certificate and Performance Marksheet have been generated and sent for Admin verification.');
+    return certificate();
+   }catch(e){ throw Error('Certificate exists, but completion documents could not be generated: '+(e.message||'Storage error')); }
   }
   const intEl=document.getElementById('certInt');if(intEl)intEl.value=i.id;
   const domEl=document.getElementById('certDomain');if(domEl&&!domEl.value)domEl.value=i.domain||'';
