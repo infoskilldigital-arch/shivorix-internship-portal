@@ -619,12 +619,17 @@ async function verifyDoc(id){
  if(error)toast(error.message);else{toast('Document verified successfully.');documents()}
 }
 async function ipo(){
- try{
-  const {data,error}=await sb.from('portal_settings').select('*').eq('setting_key','ipo_profile').single();
-  if(error)throw error;
-  const d=data?.setting_value||{}; window.__ipoData=d;
+ const fallback={title:'IPO',website:'www.shivorixai.com',email:'info.shivorix@gmail.com',phone:'+91 76540 86807',footer:'SHIVORIX · www.shivorixai.com · info.shivorix@gmail.com · +91 76540 86807',bullets:[
+ 'Founded in Muzaffarpur in 2025, SHIVORIX is a cutting-edge technology and AI-driven software development organization dedicated to delivering innovative, high-performance, and reliable digital solutions. We specialize in designing and developing custom AI applications, web portals, mobile software, ERP systems, digital marketing frameworks, and enterprise-level platforms that empower businesses and institutions to transform and scale their operations through modern technology.',
+ 'Our core expertise lies in engineering Custom AI & Automation Tools, Business ERP Solutions, E-Commerce Systems, College & Institute Management Systems, Learning Management Systems (LMS), Admission & HR Portals, Performance Marketing Engines, and Tailored Digital Transformation Suites. Our experienced team focuses on building secure, scalable, and intuitive software customized to the specific needs of every client, driving real business outcomes and institutional growth.',
+ 'Student Mentorship & Career Development — We are passionate about empowering the next generation of tech talent through structured career guidance, practical skill development programs, industry-oriented internships, technical training, and placement support to prepare students for rewarding technical careers in the evolving digital ecosystem.',
+ 'Digital Marketing & Media Hub — Beyond traditional software development, SHIVORIX operates a full-suite digital marketing agency offering Search Engine Optimization (SEO), performance campaigns, social media management, brand identity design, and conversion-focused growth funnels designed to give client businesses a commanding digital presence.',
+ 'Beyond software development, SHIVORIX is deeply committed to bridging the gap between academic education and real-world technology demands. We actively mentor students through industry-aligned internship drives, hands-on software development experience, professional skill workshops, and career pathways, providing top-tier digital solutions to enterprise partners while cultivating regional tech talent.'
+ ]};
+ window.__ipoData=fallback;
+ const render=(d,isAdmin=false)=>{
+  window.__ipoData=d;
   const bullets=Array.isArray(d.bullets)?d.bullets:[];
-  const isAdmin=state.role==='admin';
   const field=(label,id,value,extra='')=>'<div class="field"><label>'+esc(label)+'</label><input id="'+id+'" value="'+esc(value||'')+'" '+extra+'></div>';
   let html=head('SHIVORIX IPO','Company profile, technology capabilities, student mentorship and digital marketing overview')+
    '<div class="card" style="border-top:4px solid #ff7a00">'+
@@ -633,8 +638,8 @@ async function ipo(){
    '<button class="btn btn-primary" onclick="downloadIPO()">⬇ Download / Print IPO</button></div>'+
    '<div class="ipo-sheet" style="margin-top:20px;padding:28px;border:1px solid #e5e7eb;border-radius:16px;background:linear-gradient(180deg,#fff,#fffaf5)">'+
    '<div style="text-align:center;margin-bottom:20px"><h2 style="margin:0;color:#7c3aed">IPO</h2><div style="margin-top:6px;color:#6b7280">'+esc(d.website||'www.shivorixai.com')+' &nbsp;|&nbsp; '+esc(d.email||'info.shivorix@gmail.com')+' &nbsp;|&nbsp; '+esc(d.phone||'+91 76540 86807')+'</div></div>'+
-   '<div>'+bullets.map((b,i)=>'<div style="display:flex;gap:12px;margin:0 0 18px"><div style="color:#7c3aed;font-size:20px;line-height:1">▪</div><div style="line-height:1.65;color:#374151">'+esc(b)+'</div></div>').join('')+'</div>'+
-   '<div style="margin-top:22px;padding-top:14px;border-top:1px solid #e5e7eb;text-align:center;font-size:12px;color:#6b7280">'+esc(d.footer||'SHIVORIX · www.shivorixai.com · info.shivorix@gmail.com · +91 76540 86807')+'</div>'+
+   '<div>'+bullets.map(b=>'<div style="display:flex;gap:12px;margin:0 0 18px"><div style="color:#7c3aed;font-size:20px;line-height:1">▪</div><div style="line-height:1.65;color:#374151">'+esc(b)+'</div></div>').join('')+'</div>'+
+   '<div style="margin-top:22px;padding-top:14px;border-top:1px solid #e5e7eb;text-align:center;font-size:12px;color:#6b7280">'+esc(d.footer||'')+'</div>'+
    '</div></div>';
   if(isAdmin){
    html+='<div class="card" style="margin-top:16px"><h3 style="margin-top:0">Admin — Edit IPO Content</h3><p class="muted">Changes here update what Students and Nodal Officers see and download.</p>'+
@@ -645,7 +650,16 @@ async function ipo(){
     '<button class="btn btn-primary" style="margin-top:12px" onclick="saveIPO()">Save IPO Changes</button></div>';
   }
   document.getElementById('main').innerHTML=html;
- }catch(e){toast(e.message||'Unable to load IPO section')}
+ };
+ render(fallback,state.role==='admin');
+ try{
+  const {data,error}=await sb.from('portal_settings').select('setting_value').eq('setting_key','ipo_profile').eq('is_public',true).maybeSingle();
+  if(error)throw error;
+  const d=data?.setting_value;
+  if(d)render(d,state.role==='admin');
+ }catch(e){
+  console.warn('IPO data fetch failed; showing built-in IPO content:',e?.message||e);
+ }
 }
 async function saveIPO(){
  try{
