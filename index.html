@@ -923,6 +923,25 @@ async function certificate(){
  const search=canSearch?(document.getElementById('certSearch')?.value||'').trim().toLowerCase():'';
  const filtered=canSearch?rows.filter(x=>[x.student_profile?.full_name,x.student_profile?.college_name,x.student_profile?.college_roll_number,x.student_profile?.university_registration_number,x.document_type,x.document_title].some(v=>String(v||'').toLowerCase().includes(search))):rows.filter(x=>x.verification_status==='verified');
  let html=head('Certificate','Internship completion certificates and performance marksheets');
+ if(state.role==='student'){
+  const {data:ci}=await sb.from('internships').select('*').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle();
+  if(ci){
+   const [{count:ah},{count:lh},{count:asub},{count:ta},{data:ev}]=await Promise.all([
+    sb.from('attendance').select('*',{count:'exact',head:true}).eq('internship_id',ci.id),
+    sb.from('internship_activity_logs').select('*',{count:'exact',head:true}).eq('internship_id',ci.id),
+    sb.from('assignment_submissions').select('*',{count:'exact',head:true}).eq('internship_id',ci.id).eq('status','evaluated'),
+    sb.from('final_test_attempts').select('*',{count:'exact',head:true}).eq('internship_id',ci.id).eq('status','evaluated'),
+    sb.from('evaluations').select('overall_score,rating').eq('internship_id',ci.id).maybeSingle()
+   ]);
+   const {data:lp}=await sb.from('lecture_progress').select('completion_percentage').eq('internship_id',ci.id).eq('student_id',state.user.id);
+   const completedLectures=(lp||[]).filter(x=>Number(x.completion_percentage||0)>=100).length;
+   const {data:allL}=await sb.from('training_lectures').select('id').eq('sector_id',(await sb.from('internship_sectors').select('id').eq('name',ci.domain).maybeSingle()).data?.id).eq('is_active',true);
+   const totalLectures=(allL||[]).length;
+   const {data:attRows}=await sb.from('attendance').select('hours').eq('internship_id',ci.id);
+   const totalAtt=(attRows||[]).reduce((s,x)=>s+Number(x.hours||0),0);
+   html+='<div class="card" style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><h3 style="margin:0">🎓 Internship Completion Summary</h3><div class="muted" style="margin-top:5px">'+esc(ci.start_date||'—')+' → '+esc(ci.end_date||'—')+' · '+esc(ci.domain||'')+'</div></div><span class="badge '+(ci.status==='completed'?'green':'orange')+'">'+esc(ci.status||'')+'</span></div><div class="grid stats" style="margin-top:16px"><div class="card stat"><div class="label">Lectures</div><div class="value">'+completedLectures+'/'+totalLectures+'</div></div><div class="card stat"><div class="label">Assignments</div><div class="value">'+(asub||0)+'</div></div><div class="card stat"><div class="label">Tests</div><div class="value">'+(ta||0)+'</div></div><div class="card stat"><div class="label">Attendance</div><div class="value">'+totalAtt.toFixed(0)+' / '+esc(ci.total_hours||120)+' hrs</div></div></div><div class="grid two" style="margin-top:12px"><div class="card"><b>📖 Log Book</b><p class="muted">'+(lh||0)+' daily entries recorded.</p><button class="btn btn-primary" onclick="downloadLogBook()">⬇ Download Log Book</button></div><div class="card"><b>⭐ Final Evaluation</b><p class="muted">'+esc(ev?.overall_score!=null?String(ev.overall_score)+'/100':'Pending')+(ev?.rating?' · '+esc(ev.rating):'')+'</p></div></div></div>';
+  }
+ }
  if(canSearch){
   html+='<div class="card"><div class="field"><label>Search Student / Roll No. / Registration No.</label><input id="certSearch" value="'+esc(search)+'" placeholder="Search student name, roll no. or registration no..." oninput="certificate()"></div>';
   if(state.role==='admin'){
