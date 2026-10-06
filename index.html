@@ -952,6 +952,12 @@ async function certificate(){
   }
   html+='</div>';
  }
+ if(state.role==='student'){
+  const {data:certs}=await sb.from('certificates').select('id,certificate_number,domain,total_hours,credits,issued_date,status,verification_token').eq('student_id',state.user.id).order('issued_date',{ascending:false});
+  if(certs?.length){
+   html+='<div class="card" style="margin-top:16px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><h3 style="margin:0">📜 Issued Certificate</h3><div class="muted" style="margin-top:4px">Your internship completion certificate record is available.</div></div><button class="btn btn-primary" onclick="printCertificate(\''+certs[0].id+'\')">⬇ Download / Print Certificate</button></div><div class="grid two" style="margin-top:16px"><div><small class="muted">Certificate No.</small><div><b>'+esc(certs[0].certificate_number||'—')+'</b></div></div><div><small class="muted">Issued Date</small><div>'+esc(certs[0].issued_date||'—')+'</div></div><div><small class="muted">Domain</small><div>'+esc(certs[0].domain||'—')+'</div></div><div><small class="muted">Hours / Credits</small><div>'+esc(certs[0].total_hours||0)+' hrs · '+esc(certs[0].credits||0)+' credits</div></div></div></div>';
+  }
+ }
  html+='<div class="card" style="margin-top:16px"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Type</th><th>Title</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>';
  if(filtered.length)html+=filtered.map(x=>'<tr><td>'+esc(x.student_profile?.full_name||state.profile.full_name||'—')+'<br><small>'+esc(x.student_profile?.college_roll_number||x.student_profile?.university_registration_number||'')+'</small></td><td>'+esc(x.document_type)+'</td><td>'+esc(x.document_title||'—')+'</td><td>'+esc(x.verification_status)+'</td><td>'+new Date(x.created_at).toLocaleDateString('en-IN')+'</td><td><button class="btn btn-soft" onclick="downloadDoc(&quot;'+x.file_path+'&quot;)">Download / Open</button>'+(state.role==='admin'&&x.verification_status==='pending'?'<button class="btn btn-primary" style="margin-left:5px" onclick="verifyCertificateDoc(&quot;'+x.id+'&quot;)">Verify</button>':'')+'</td></tr>').join('');
  else html+='<tr><td colspan="6" class="empty">'+(state.role==='student'?'Your verified Certificate and Performance Marksheet will appear here after Admin verification.':'No Certificate or Performance Marksheet found for the current search.')+'</td></tr>';
