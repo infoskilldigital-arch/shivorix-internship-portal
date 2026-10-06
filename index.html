@@ -581,7 +581,7 @@ async function saveEvaluation(internshipId,evalId){
   const payload={student_id:null,internship_id:internshipId,technical_knowledge:nums[0],quality_of_work:nums[1],initiative_problem_solving:nums[2],communication:nums[3],discipline_punctuality:nums[4],overall_score:Number(overall.toFixed(2)),rating,supervisor_remarks:document.getElementById('evremarks').value.trim()||null,evaluated_by:state.user.id,evaluated_at:new Date().toISOString()};
   const {data:i,error:ie}=await sb.from('internships').select('student_id').eq('id',internshipId).single();if(ie)throw ie;payload.student_id=i.student_id;
   let r;if(evalId)r=await sb.from('evaluations').update(payload).eq('id',evalId);else r=await sb.from('evaluations').insert(payload);
-  if(r.error)throw r.error;toast('Evaluation saved successfully');evaluations();
+  if(r.error)throw r.error;try{await autoGenerateCompletionDocuments(internshipId)}catch(genErr){console.warn('Automatic completion documents deferred:',genErr?.message||genErr)}toast('Evaluation saved successfully');evaluations();
  }catch(e){toast(e.message||'Unable to save evaluation')}
 }
 async function audit(){
