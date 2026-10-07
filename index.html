@@ -1161,6 +1161,46 @@ async function reviewCertificateDoc(rowId,certificateId,internshipId,documentTyp
   toast('Reviewing '+documentType+'. Approve only after checking the document.');
  }catch(e){console.error(e);toast('Unable to open document: '+(e.message||'Review failed'))}
 }
+async function approveOrGenerateCertificateDoc(rowId,certificateId,internshipId,documentType){
+ if(state.role!=='admin')return toast('Only SHIVORIX Admin can approve completion documents.');
+ try{
+  let actualId=rowId;
+  let path='';
+  if(String(rowId||'').startsWith('virtual-')){
+   if(!certificateId)throw Error('Certificate record not found.');
+   if(!internshipId)throw Error('Internship record not found.');
+   path=await buildCompletionDocument(documentType==='Internship Certificate'?'certificate':'marksheet',internshipId,certificateId);
+   const {data:created,error:ce}=await sb.from('student_documents').select('id,file_path').eq('internship_id',internshipId).eq('document_type',documentType).order('created_at',{ascending:false}).limit(1).maybeSingle();
+   if(ce)throw ce;
+   actualId=created?.id||'';
+   if(!actualId)throw Error('Generated document record was not found.');
+  }else{
+   const {data:doc,error:de}=await sb.from('student_documents').select('id,file_path,verification_status').eq('id',rowId).single();
+   if(de)throw de;
+   if(doc.verification_status==='verified')return toast('Document is already approved.');
+   path=doc.file_path||'';
+   if(!path){
+    if(!certificateId||!internshipId)throw Error('Document is missing its generation details.');
+    path=await buildCompletionDocument(documentType==='Internship Certificate'?'certificate':'marksheet',internshipId,certificateId);
+    const {data:created,error:ce}=await sb.from('student_documents').select('id,file_path').eq('internship_id',internshipId).eq('document_type',documentType).order('created_at',{ascending:false}).limit(1).maybeSingle();
+    if(ce)throw ce;
+    actualId=created?.id||actualId;
+   }
+  }
+  if(!actualId)throw Error('Document record not found.');
+  const {error:ue}=await sb.from('student_documents').update({
+   verification_status:'verified',
+   verification_remarks:'Approved by SHIVORIX Admin after document review.',
+   verified_at:new Date().toISOString()
+  }).eq('id',actualId);
+  if(ue)throw ue;
+  toast(documentType+' approved successfully.');
+  await certificates();
+ }catch(e){
+  console.error('Certificate approval error:',e);
+  toast('Unable to approve document: '+(e.message||'Approval failed'));
+ }
+}
 async function verifyCertificateDoc(id){ return approveOrGenerateCertificateDoc(id,'','','Internship Certificate'); }
 async function rejectCertificateDoc(id){
  if(state.role!=='admin')return toast('Only SHIVORIX Admin can reject certificate documents.');
