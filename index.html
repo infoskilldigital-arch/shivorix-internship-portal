@@ -995,64 +995,47 @@ async function downloadDoc(path){if(String(path||'').startsWith('generated://ipo
 async function payment(){const {data}=await sb.from('payments').select('*').eq('student_id',state.user.id).order('created_at',{ascending:false});document.getElementById('main').innerHTML=head('Payment','Payment becomes available only after Nodal Officer approval')+`<div class="card">${(data||[]).length?`<div class="table-wrap"><table class="table"><thead><tr><th>Amount</th><th>Status</th><th>Provider</th><th>Date</th></tr></thead><tbody>${data.map(x=>`<tr><td>₹${Number(x.amount).toLocaleString('en-IN')}</td><td>${x.status}</td><td>${x.provider||'—'}</td><td>${new Date(x.created_at).toLocaleDateString()}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">No payment order is available yet. It will appear here after Nodal Officer approval.</div>'}</div>`}
 async function evaluation(){const {data}=await sb.from('evaluations').select('*').eq('student_id',state.user.id).maybeSingle();document.getElementById('main').innerHTML=head('Evaluation','Internship performance evaluation')+`<div class="card">${data?`<div class="grid two">${[['Technical Knowledge',data.technical_knowledge],['Quality of Work',data.quality_of_work],['Initiative & Problem Solving',data.initiative_problem_solving],['Communication',data.communication],['Discipline & Punctuality',data.discipline_punctuality],['Overall Score',data.overall_score],['Rating',data.rating],['Remarks',data.supervisor_remarks]].map(x=>`<div><small class="muted">${x[0]}</small><div style="font-weight:750;margin-top:4px">${esc(x[1]??'—')}</div></div>`).join('')}</div>`:'<div class="empty">Evaluation has not been submitted yet.</div>'}</div>`}
 async function certificate(){
- const types=['IPO Acceptance Letter','Internship Certificate','Performance Marksheet'];
- let q=sb.from('student_documents').select('id,student_id,college_id,document_type,document_title,file_path,mime_type,file_size,verification_status,remarks,created_at,student_profile:profiles!student_documents_student_id_fkey(full_name,college_name,college_roll_number,university_registration_number)').in('document_type',types).order('created_at',{ascending:false});
- if(state.role==='student')q=q.eq('student_id',state.user.id);
- if(state.role==='node_officer')q=q.eq('college_id',state.profile.college_id);
- const {data:docs,error:de}=await q;if(de)throw de;
- const rows=docs||[];
- const canSearch=state.role==='admin'||state.role==='node_officer';
- const search=canSearch?(document.getElementById('certSearch')?.value||'').trim().toLowerCase():'';
- const filtered=canSearch?rows.filter(x=>[x.student_profile?.full_name,x.student_profile?.college_name,x.student_profile?.college_roll_number,x.student_profile?.university_registration_number,x.document_type,x.document_title].some(v=>String(v||'').toLowerCase().includes(search))):rows.filter(x=>x.verification_status==='verified');
- let html=head('Certificate','Internship completion certificates and performance marksheets');
- if(state.role==='student'){
-  const {data:ci}=await sb.from('internships').select('*').eq('student_id',state.user.id).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle();
-  if(ci){
-   const [{count:ah},{count:lh},{count:asub},{count:ta},{count:wa},{data:ev}]=await Promise.all([
-    sb.from('attendance').select('*',{count:'exact',head:true}).eq('internship_id',ci.id),
-    sb.from('internship_activity_logs').select('*',{count:'exact',head:true}).eq('internship_id',ci.id),
-    sb.from('assignment_submissions').select('*',{count:'exact',head:true}).eq('internship_id',ci.id),
-    sb.from('final_test_attempts').select('*',{count:'exact',head:true}).eq('internship_id',ci.id).eq('status','evaluated'),
-    sb.from('weekly_logs').select('*',{count:'exact',head:true}).eq('internship_id',ci.id),
-    sb.from('evaluations').select('overall_score,rating').eq('internship_id',ci.id).maybeSingle()
-   ]);
-   const {data:lp}=await sb.from('lecture_progress').select('completion_percentage').eq('internship_id',ci.id).eq('student_id',state.user.id);
-   const {data:sector}=await sb.from('internship_sectors').select('id').eq('name',ci.domain).maybeSingle();
-   const {data:allL}=await sb.from('training_lectures').select('id').eq('sector_id',sector?.id).eq('is_active',true);
-   const completedLectures=(lp||[]).filter(x=>Number(x.completion_percentage||0)>=100).length;
-   const totalLectures=(allL||[]).length;
-   const {data:attRows}=await sb.from('attendance').select('hours').eq('internship_id',ci.id);
-   const totalAtt=(attRows||[]).reduce((s,x)=>s+Number(x.hours||0),0);
-   const {data:allCerts}=await sb.from('certificates').select('id,certificate_number,domain,total_hours,credits,issued_date,status,internship_id').eq('student_id',state.user.id).order('issued_date',{ascending:false});
-   const {data:approvedDocs}=await sb.from('student_documents').select('internship_id,document_type,verification_status').eq('student_id',state.user.id).in('document_type',['Internship Certificate','Performance Marksheet']).eq('verification_status','verified');
-   const approvedIds=new Set((approvedDocs||[]).map(x=>x.internship_id));
-   const certs=(allCerts||[]).filter(x=>approvedIds.has(x.internship_id)&&(approvedDocs||[]).filter(d=>d.internship_id===x.internship_id).length>=2);
-   html+='<div class="card" style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><h3 style="margin:0">🎓 Internship Completion Summary</h3><div class="muted" style="margin-top:5px">'+esc(ci.start_date||'—')+' → '+esc(ci.end_date||'—')+' · '+esc(ci.domain||'')+'</div></div><span class="badge '+(ci.status==='completed'?'green':'orange')+'">'+esc(ci.status||'')+'</span></div><div class="grid stats" style="margin-top:16px"><div class="card stat"><div class="label">Lectures</div><div class="value">'+completedLectures+'/'+totalLectures+'</div></div><div class="card stat"><div class="label">Assignment</div><div class="value">'+(asub||0)+'</div></div><div class="card stat"><div class="label">Weekly Assessments</div><div class="value">'+(wa||0)+'/4</div></div><div class="card stat"><div class="label">Final Test</div><div class="value">'+(ta||0)+'</div></div><div class="card stat"><div class="label">Attendance</div><div class="value">'+totalAtt.toFixed(0)+' / '+esc(ci.total_hours||120)+' hrs</div></div><div class="card stat"><div class="label">Final Evaluation</div><div class="value">'+esc(ev?.overall_score!=null?String(ev.overall_score)+'/100':'Pending')+'</div></div></div></div>';
-   html+='<div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">📥 Completion Documents & Reports</h3><p class="muted">Download or print your internship records as proper A4 documents.</p><div class="grid two" style="margin-top:12px"><button class="btn btn-soft" onclick="downloadAttendanceSheet()">⬇ Attendance Sheet</button><button class="btn btn-soft" onclick="downloadLectureResults()">⬇ Lecture Progress / Results</button><button class="btn btn-soft" onclick="downloadTestResults()">⬇ Lecture Test Results</button><button class="btn btn-soft" onclick="downloadFinalTestResult()">⬇ Final Test Result</button><button class="btn btn-soft" onclick="downloadAssignmentReport()">⬇ Assignment Report</button><button class="btn btn-soft" onclick="downloadWeeklyAssessments()">⬇ Weekly Assessments (4)</button><button class="btn btn-soft" onclick="downloadLogBook()">⬇ Log Book</button><button class="btn btn-soft" onclick="downloadIPO()">⬇ SHIVORIX IPO</button>'+(certs?.length?'<button class="btn btn-primary" onclick="printCertificate(&quot;'+certs[0].id+'&quot;)">⬇ Internship Certificate</button>':'')+ '<button class="btn btn-soft" onclick="downloadVerifiedDocuments()">⬇ Certificate / Marksheet Documents</button></div></div>';
-   if(certs?.length)html+='<div class="card" style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><h3 style="margin:0">📜 Issued Certificate</h3><div class="muted" style="margin-top:4px">Certificate Number: '+esc(certs[0].certificate_number||'—')+' · '+esc(certs[0].issued_date||'—')+'</div></div><button class="btn btn-primary" onclick="printCertificate(&quot;'+certs[0].id+'&quot;)">⬇ Download / Print Certificate</button></div><div class="grid two" style="margin-top:14px"><div><small class="muted">Domain</small><div>'+esc(certs[0].domain||'—')+'</div></div><div><small class="muted">Hours / Credits</small><div>'+esc(certs[0].total_hours||0)+' hrs · '+esc(certs[0].credits||0)+' credits</div></div></div></div>';
- }
- }
- if(canSearch){
-  html+='<div class="card"><div class="field"><label>Search Student / Roll No. / Registration No.</label><input id="certSearch" value="'+esc(search)+'" placeholder="Search student name, roll no. or registration no..." oninput="certificate()"></div>';
+ try{
+  const canSearch=state.role==='admin'||state.role==='node_officer';
+  const search=canSearch?(document.getElementById('certSearch')?.value||'').trim().toLowerCase():'';
+  let rows=[];
   if(state.role==='admin'){
-   const {data:students,error:se}=await sb.from('profiles').select('id,full_name,college_name,college_roll_number,university_registration_number').eq('role','student').order('full_name');if(se)throw se;
-   const ss=(students||[]).filter(x=>!search||[x.full_name,x.college_name,x.college_roll_number,x.university_registration_number].some(v=>String(v||'').toLowerCase().includes(search)));
-   html+='<div class="grid two" style="margin-top:12px"><div class="field"><label>Select Student for Manual Upload</label><select id="manualCertStudent">'+(ss.length?ss.map(x=>'<option value="'+x.id+'">'+esc(x.full_name)+' — '+esc(x.college_roll_number||x.university_registration_number||x.college_name||'')+'</option>').join(''):'<option value="">No matching student</option>')+'</select></div><div class="field"><label>Document Type</label><select id="manualCertType"><option>Internship Certificate</option><option>Performance Marksheet</option></select></div></div><div class="field" style="margin-top:12px"><label>Upload Certificate / Marksheet</label><input id="manualCertFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.html"></div><button class="btn btn-primary" style="margin-top:12px" onclick="adminUploadCertificate()">Upload to Student Certificate Section</button>';
-   html+='<div class="form two-col" style="margin-top:18px"><div class="field"><label>Internship ID for Completion</label><input id="certInt" placeholder="Enter internship ID"></div><div class="field"><label>Domain (optional)</label><input id="certDomain" placeholder="Use assigned internship domain if blank"></div></div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px"><button class="btn btn-primary" onclick="issueCertificate()">Complete Internship & Generate Certificate + Marksheet</button><button class="btn btn-soft" onclick="autoGenerateCertificate()">⚡ Auto Generate for Selected Student</button></div><div class="alert" style="margin-top:10px">Auto Generate uses the selected student’s latest active/completed internship. Attendance and final evaluation requirements still apply.</div>';
+   const {data:issued,error:ie}=await sb.from('certificates').select('id,internship_id,student_id,certificate_number,issued_date,status').order('issued_date',{ascending:false});
+   if(ie)throw ie;
+   for(const c of (issued||[])){
+    for(const type of ['Internship Certificate','Performance Marksheet']){
+     const {data:ex}=await sb.from('student_documents').select('id,student_id,college_id,internship_id,document_type,document_title,file_path,verification_status,remarks,created_at,student_profile:profiles!student_documents_student_id_fkey(full_name,college_name,college_roll_number,university_registration_number)').eq('internship_id',c.internship_id).eq('document_type',type).order('created_at',{ascending:false}).limit(1).maybeSingle();
+     if(ex) rows.push({...ex,certificate_id:c.id});
+     else rows.push({id:'virtual-'+c.id+'-'+type.replace(/\\s/g,'-'),student_id:c.student_id,internship_id:c.internship_id,document_type:type,document_title:type+' — Pending Generation',file_path:'',verification_status:'pending',remarks:'Generated document pending Admin approval',created_at:c.issued_date||new Date().toISOString(),certificate_id:c.id});
+    }
+   }
+  }else{
+   let q=sb.from('student_documents').select('id,student_id,college_id,internship_id,document_type,document_title,file_path,verification_status,remarks,created_at,student_profile:profiles!student_documents_student_id_fkey(full_name,college_name,college_roll_number,university_registration_number)').in('document_type',['Internship Certificate','Performance Marksheet']).order('created_at',{ascending:false});
+   if(state.role==='student')q=q.eq('student_id',state.user.id);
+   if(state.role==='node_officer')q=q.eq('college_id',state.profile.college_id);
+   const {data,error}=await q;if(error)throw error;rows=data||[];
+   if(state.role==='student')rows=rows.filter(x=>x.verification_status==='verified');
   }
-  html+='</div>';
- }
- if(state.role==='student'){
-  const {data:certs}=await sb.from('certificates').select('id,certificate_number,domain,total_hours,credits,issued_date,status,verification_token').eq('student_id',state.user.id).order('issued_date',{ascending:false});
-  if(certs?.length){
-   html+='<div class="card" style="margin-top:16px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><h3 style="margin:0">📜 Issued Certificate</h3><div class="muted" style="margin-top:4px">Your internship completion certificate record is available.</div></div><button class="btn btn-primary" onclick="printCertificate(\''+certs[0].id+'\')">⬇ Download / Print Certificate</button></div><div class="grid two" style="margin-top:16px"><div><small class="muted">Certificate No.</small><div><b>'+esc(certs[0].certificate_number||'—')+'</b></div></div><div><small class="muted">Issued Date</small><div>'+esc(certs[0].issued_date||'—')+'</div></div><div><small class="muted">Domain</small><div>'+esc(certs[0].domain||'—')+'</div></div><div><small class="muted">Hours / Credits</small><div>'+esc(certs[0].total_hours||0)+' hrs · '+esc(certs[0].credits||0)+' credits</div></div></div></div>';
+  const filtered=rows.filter(x=>!search||[x.student_profile?.full_name,x.student_profile?.college_name,x.student_profile?.college_roll_number,x.student_profile?.university_registration_number,x.document_type,x.document_title].some(v=>String(v||'').toLowerCase().includes(search)));
+  let html=head('Certificate','Internship completion certificate and performance marksheet');
+  if(state.role==='student'){
+   const approved=filtered.filter(x=>x.verification_status==='verified');
+   html+='<div class="card"><div class="alert">'+(approved.length>=2?'<b>Admin Approved:</b> Your Certificate and Performance Marksheet are available below.':'Your Certificate and Performance Marksheet will appear here only after <b>SHIVORIX Admin approves both documents</b>.')+'</div></div>';
+  }else if(state.role==='admin'||state.role==='node_officer'){
+   html+='<div class="card"><div class="field"><label>Search Student / Roll No. / Registration No.</label><input id="certSearch" value="'+esc(search)+'" placeholder="Search student name, roll no. or registration no..." oninput="certificate()"></div><div class="alert" style="margin-top:12px"><b>Approval Workflow:</b> Certificate and Performance Marksheet are generated automatically and remain <b>Pending</b> until SHIVORIX Admin approves them. Nodal Officer cannot approve these documents.</div></div>';
   }
- }
- html+='<div class="card" style="margin-top:16px"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Type</th><th>Title</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>';
- if(filtered.length)html+=filtered.map(x=>'<tr><td>'+esc(x.student_profile?.full_name||state.profile.full_name||'—')+'<br><small>'+esc(x.student_profile?.college_roll_number||x.student_profile?.university_registration_number||'')+'</small></td><td>'+esc(x.document_type)+'</td><td>'+esc(x.document_title||'—')+'</td><td>'+esc(x.verification_status)+'</td><td>'+new Date(x.created_at).toLocaleDateString('en-IN')+'</td><td><button class="btn btn-soft" onclick="downloadDoc(&quot;'+x.file_path+'&quot;)">Download / Open</button>'+(state.role==='admin'&&x.verification_status==='pending'?'<button class="btn btn-primary" style="margin-left:5px" onclick="verifyCertificateDoc(&quot;'+x.id+'&quot;)">Verify</button>':'')+'</td></tr>').join('');
- else html+='<tr><td colspan="6" class="empty">'+(state.role==='student'?'Your verified Certificate and Performance Marksheet will appear here after Admin verification.':'No Certificate or Performance Marksheet found for the current search.')+'</td></tr>';
- html+='</tbody></table></div></div>';
- document.getElementById('main').innerHTML=html;
+  html+='<div class="card" style="margin-top:16px"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Type</th><th>Title</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>';
+  if(filtered.length){
+   html+=filtered.map(x=>{
+    const action=x.file_path?'<button class="btn btn-soft" onclick="downloadDoc(&quot;'+x.file_path+'&quot;)">View</button>':'<span class="muted">Generate on approval</span>';
+    const approval=state.role==='admin'&&x.verification_status==='pending'?'<button class="btn btn-primary" style="margin-left:6px" onclick="approveOrGenerateCertificateDoc(&quot;'+x.id+'&quot;,&quot;'+(x.certificate_id||'')+'&quot;,&quot;'+x.internship_id+'&quot;,&quot;'+x.document_type+'&quot;)">✓ Approve</button><button class="btn btn-soft" style="margin-left:6px" onclick="rejectCertificateDoc(&quot;'+x.id+'&quot;)">✕ Reject</button>':'';
+    return '<tr><td><b>'+esc(x.student_profile?.full_name||'Student')+'</b><br><small>'+esc(x.student_profile?.college_roll_number||x.student_profile?.university_registration_number||'')+'</small></td><td>'+esc(x.document_type)+'</td><td>'+esc(x.document_title||'—')+'</td><td><span class="badge '+(x.verification_status==='verified'?'green':x.verification_status==='rejected'?'red':'orange')+'">'+esc(x.verification_status||'pending')+'</span></td><td>'+new Date(x.created_at).toLocaleDateString('en-IN')+'</td><td>'+action+approval+'</td></tr>';
+   }).join('');
+  }else html+='<tr><td colspan="6" class="empty">No Certificate or Performance Marksheet found.</td></tr>';
+  html+='</tbody></table></div></div>';
+  if(state.role==='admin')html+='<div class="card" style="margin-top:16px"><h3 style="margin-top:0">Automatic Completion Documents</h3><p class="muted">No manual upload is required. Certificate and Performance Marksheet are generated from the completed internship record and require Admin approval.</p></div>';
+  document.getElementById('main').innerHTML=html;
+ }catch(e){console.error(e);document.getElementById('main').innerHTML=head('Certificate','Internship completion certificate and performance marksheet')+'<div class="card"><div class="alert red">'+esc(e.message||'Unable to load certificate section')+'</div></div>'}
 }
 async function adminUploadCertificate(){
  try{
