@@ -722,7 +722,48 @@ async function autoGenerateCompletionDocuments(internshipId){
  if(!types.has('Performance Marksheet'))await buildCompletionDocument('marksheet',internshipId,certificateId);
 }
 
-async function certificates(){const {data}=await sb.from('certificates').select('*,profiles(full_name,college_name)').order('issued_date',{ascending:false});document.getElementById('main').innerHTML=head('Certificates','Completion certificates and records')+'<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Certificate</th><th>Domain</th><th>Hours</th><th>Credits</th><th>Issued</th><th>Action</th></tr></thead><tbody>'+(data||[]).map(x=>'<tr><td>'+esc(x.student_profile?.full_name||state.profile.full_name)+'</td><td>'+esc(x.certificate_number)+'</td><td>'+esc(x.domain)+'</td><td>'+x.total_hours+'</td><td>'+x.credits+'</td><td>'+x.issued_date+'</td><td><button class="btn btn-primary" onclick="printCertificate(\''+x.id+'\')">View / Print</button></td></tr>').join('')||'<tr><td colspan="7" class="empty">No certificates issued.</td></tr>'+'</tbody></table></div></div>'+(state.role==='admin'?'<div class="card" style="margin-top:16px"><div class="alert"><b>Automatic Generation:</b> Internship Certificate and Performance Marksheet are generated automatically after the student completes the required internship hours and final evaluation. No manual upload, manual selection, or manual issue action is required.</div></div>':'')}
+async function certificates(){
+ try{
+  const {data:certs,error}=await sb.from('certificates').select('id,student_id,certificate_number,domain,total_hours,credits,issued_date,status,verification_token,internship_id').order('issued_date',{ascending:false});
+  if(error)throw error;
+  const rows=certs||[];
+  const studentIds=[...new Set(rows.map(x=>x.student_id).filter(Boolean))];
+  let profiles=[];
+  if(studentIds.length){
+   const {data:p,error:pe}=await sb.from('profiles').select('id,full_name,college_name,college_roll_number,university_registration_number').in('id',studentIds);
+   if(pe)throw pe; profiles=p||[];
+  }
+  const pmap=Object.fromEntries(profiles.map(p=>[p.id,p]));
+  if(state.role==='admin'){
+   for(const c of rows){
+    const {data:docs}=await sb.from('student_documents').select('document_type').eq('internship_id',c.internship_id).in('document_type',['Internship Certificate','Performance Marksheet']);
+    const types=new Set((docs||[]).map(d=>d.document_type));
+    if(!types.has('Internship Certificate')){try{await buildCompletionDocument('certificate',c.internship_id,c.id)}catch(e){console.warn('Certificate document generation failed',e)}}
+    if(!types.has('Performance Marksheet')){try{await buildCompletionDocument('marksheet',c.internship_id,c.id)}catch(e){console.warn('Marksheet generation failed',e)}}
+   }
+  }
+  let html=head('Certificates','Completion certificates and records');
+  if(rows.length){
+   html+='<div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Certificate</th><th>Domain</th><th>Hours</th><th>Credits</th><th>Issued</th><th>Action</th></tr></thead><tbody>'+
+   rows.map(x=>{const p=pmap[x.student_id]||{};return '<tr><td><b>'+esc(p.full_name||'Student')+'</b><br><small>'+esc(p.college_roll_number||p.university_registration_number||'')+'</small></td><td>'+esc(x.certificate_number)+'</td><td>'+esc(x.domain)+'</td><td>'+esc(x.total_hours)+'</td><td>'+esc(x.credits)+'</td><td>'+esc(x.issued_date)+'</td><td><button class="btn btn-primary" onclick="printCertificate(\\''+x.id+'\\')">View / Print Certificate</button><button class="btn btn-soft" style="margin-left:6px" onclick="repairCompletionDocuments(\\''+x.internship_id+'\\',\\''+x.id+'\\')">Generate / View Marksheet</button></td></tr>'}).join('')+
+   '</tbody></table></div></div>';
+  }else{
+   html+='<div class="card"><div class="empty">No certificate record has been issued yet.</div></div>';
+  }
+  html+='<div class="card" style="margin-top:16px"><div class="alert"><b>Automatic Generation:</b> Certificate and Performance Marksheet are generated from the completed internship record after required hours and final evaluation are complete.</div></div>';
+  html+='<div class="card" style="margin-top:16px"><h3 style="margin-top:0">Generated Documents</h3><div id="generatedDocsHint" class="muted">Certificate and Performance Marksheet documents are linked to the issued certificate above.</div></div>';
+  document.getElementById('main').innerHTML=html;
+ }catch(e){document.getElementById('main').innerHTML=head('Certificates','Completion certificates and records')+'<div class="card"><div class="alert red">Unable to load certificates: '+esc(e.message||'Unknown error')+'</div></div>';console.error('Certificate page error',e)}
+}
+async function repairCompletionDocuments(internshipId,certificateId){
+ try{
+  await buildCompletionDocument('certificate',internshipId,certificateId);
+  await buildCompletionDocument('marksheet',internshipId,certificateId);
+  toast('Certificate and Performance Marksheet generated successfully. Open Documents to view them.');
+  await certificates();
+ }catch(e){toast('Document generation failed: '+(e.message||'Storage error'))}
+}
+
 async function buildCompletionDocument(type,internshipId,certificateId){
  const {data:i,error:ie}=await sb.from('internships').select('*,profiles(full_name,father_name,mother_name,college_name,university_name,course,department,semester,academic_session,college_roll_number,university_registration_number)').eq('id',internshipId).single();if(ie)throw ie;
  const {data:ev}=await sb.from('evaluations').select('*').eq('internship_id',internshipId).maybeSingle();
