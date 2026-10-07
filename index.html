@@ -730,6 +730,20 @@ async function certificates(){
   const canSearch=state.role==='admin'||state.role==='node_officer';
   const search=canSearch?(document.getElementById('certSearch')?.value||'').trim().toLowerCase():'';
   const scoped=state.role==='student'?all.filter(x=>x.student_id===state.user.id):state.role==='node_officer'?all.filter(x=>x.college_id===state.profile.college_id):all;
+  // Admin: make sure every issued certificate has both generated completion documents pending approval.
+  if(state.role==='admin'){
+   const {data:issued}=await sb.from('certificates').select('id,internship_id').order('issued_date',{ascending:false});
+   for(const c of (issued||[])){
+    try{
+     const {data:existing}=await sb.from('student_documents').select('document_type').eq('internship_id',c.internship_id).in('document_type',['Internship Certificate','Performance Marksheet']);
+     const types=new Set((existing||[]).map(x=>x.document_type));
+     if(!types.has('Internship Certificate')) await buildCompletionDocument('certificate',c.internship_id,c.id);
+     if(!types.has('Performance Marksheet')) await buildCompletionDocument('marksheet',c.internship_id,c.id);
+    }catch(e){console.warn('Completion document generation:',e)}
+   }
+   const {data:refreshed,error:re}=await sb.from('student_documents').select('id,student_id,college_id,internship_id,document_type,document_title,file_path,verification_status,remarks,created_at,student_profile:profiles!student_documents_student_id_fkey(full_name,college_name,college_roll_number,university_registration_number)').in('document_type',['Internship Certificate','Performance Marksheet']).order('created_at',{ascending:false});
+   if(!re) { docs.length=0; docs.push(...(refreshed||[])); }
+  }
   const groups={};
   scoped.forEach(x=>{if(!groups[x.internship_id])groups[x.internship_id]=[];groups[x.internship_id].push(x)});
   const bothApproved=(rows)=>['Internship Certificate','Performance Marksheet'].every(t=>rows.some(x=>x.document_type===t&&x.verification_status==='verified'));
@@ -750,8 +764,9 @@ async function certificates(){
   }else{
    html+='<div class="card"><div class="field"><label>Search Student / Roll No. / Registration No.</label><input id="certSearch" value="'+esc(search)+'" placeholder="Search student, roll no. or registration no..." oninput="certificates()"></div><div class="alert" style="margin-top:12px">Generated Certificate and Performance Marksheet require Admin approval. Nodal Officer cannot approve these completion documents.</div></div>';
    const filtered=scoped.filter(x=>!search||[x.student_profile?.full_name,x.student_profile?.college_name,x.student_profile?.college_roll_number,x.student_profile?.university_registration_number,x.document_type,x.document_title].some(v=>String(v||'').toLowerCase().includes(search)));
+   html+='<div class="card" style="margin-top:16px"><div class="alert"><b>Admin Approval:</b> Certificate और Performance Marksheet पहले <b>Pending</b> रहेंगे. दोनों को <b>Approve</b> करने के बाद ही Student को दिखेंगे.</div></div>';
    html+='<div class="card" style="margin-top:16px"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Type</th><th>Certificate ID</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>';
-   html+=filtered.map(x=>'<tr><td><b>'+esc(x.student_profile?.full_name||'Student')+'</b><br><small>'+esc(x.student_profile?.college_roll_number||x.student_profile?.university_registration_number||'')+'</small></td><td>'+esc(x.document_type)+'</td><td>'+esc(x.document_title||'—')+'</td><td><span class="badge '+(x.verification_status==='verified'?'green':x.verification_status==='rejected'?'red':'orange')+'">'+esc(x.verification_status||'pending')+'</span></td><td>'+new Date(x.created_at).toLocaleDateString('en-IN')+'</td><td><button class="btn btn-soft" onclick="downloadDoc(&quot;'+x.file_path+'&quot;)">View</button>'+(state.role==='admin'&&x.verification_status==='pending'?'<button class="btn btn-primary" style="margin-left:6px" onclick="verifyCertificateDoc(&quot;'+x.id+'&quot;)">Approve</button>':'')+'</td></tr>').join('');
+   html+=filtered.map(x=>'<tr><td><b>'+esc(x.student_profile?.full_name||'Student')+'</b><br><small>'+esc(x.student_profile?.college_roll_number||x.student_profile?.university_registration_number||'')+'</small></td><td>'+esc(x.document_type)+'</td><td>'+esc(x.document_title||'—')+'</td><td><span class="badge '+(x.verification_status==='verified'?'green':x.verification_status==='rejected'?'red':'orange')+'">'+esc(x.verification_status||'pending')+'</span></td><td>'+new Date(x.created_at).toLocaleDateString('en-IN')+'</td><td><button class="btn btn-soft" onclick="downloadDoc(&quot;'+x.file_path+'&quot;)">View</button>'+(state.role==='admin'&&x.verification_status==='pending'?'<button class="btn btn-primary" style="margin-left:6px" onclick="verifyCertificateDoc(&quot;'+x.id+'&quot;)">✓ Approve</button><button class="btn btn-soft" style="margin-left:6px" onclick="rejectCertificateDoc(&quot;'+x.id+'&quot;)">✕ Reject</button>':'')+'</td></tr>').join('');
    html+=filtered.length?'':'<tr><td colspan="6" class="empty">No Certificate or Performance Marksheet found.</td></tr>';
    html+='</tbody></table></div></div>';
    if(state.role==='admin'){
@@ -1061,9 +1076,18 @@ async function adminUploadCertificate(){
  }catch(e){toast(e.message||'Unable to upload certificate')}
 }
 async function verifyCertificateDoc(id){
- if(state.role!=='admin')return toast('Only SHIVORIX Admin can verify certificate documents.');
- const {error}=await sb.from('student_documents').update({verification_status:'verified',remarks:prompt('Remarks (optional):','')||null}).eq('id',id).in('document_type',['Internship Certificate','Performance Marksheet']);
- if(error)toast(error.message);else{toast('Certificate document verified successfully.');certificate()}
+ if(state.role!=='admin')return toast('Only SHIVORIX Admin can approve certificate documents.');
+ const {data:d,error:de}=await sb.from('student_documents').select('id,document_type').eq('id',id).single();
+ if(de)throw de;
+ const {error}=await sb.from('student_documents').update({verification_status:'verified',remarks:'Approved by SHIVORIX Admin'}).eq('id',id);
+ if(error)toast(error.message);else{toast(d.document_type+' approved.');certificates()}
+}
+async function rejectCertificateDoc(id){
+ if(state.role!=='admin')return toast('Only SHIVORIX Admin can reject certificate documents.');
+ const reason=prompt('Rejection reason:','Please review and regenerate this document.');
+ if(reason===null)return;
+ const {error}=await sb.from('student_documents').update({verification_status:'rejected',remarks:reason||'Rejected by SHIVORIX Admin'}).eq('id',id);
+ if(error)toast(error.message);else{toast('Document rejected.');certificates()}
 }
 async function students(){
  const {data,error}=await sb.from('profiles').select('id,full_name,father_name,mother_name,date_of_birth,gender,mobile,email,permanent_address,city,state,pin_code,college_name,university_name,course,department,semester,academic_session,college_roll_number,university_registration_number,login_id,role').eq('role','student').order('full_name');
