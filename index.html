@@ -997,7 +997,110 @@ async function autoCheckInOnLogin(){
  }catch(e){console.warn('Automatic attendance check-in skipped:',e?.message||e)}
 }
 // Nodal Officer route aliases. Keep one shared implementation for scoped data access via RLS.
-async function nodeAttendance(){ return attendance(); }
+async function nodeAttendance(){
+ try{
+  if(state.role!=='node_officer')throw Error('Attendance management is available only to Nodal Officers.');
+  const {data:students,error:se}=await sb.from('profiles').select('id,full_name,college_name,college_roll_number,university_registration_number,course,department,semester').eq('role','student').eq('college_id',state.profile.college_id).order('full_name');
+  if(se)throw se;
+  const ids=(students||[]).map(x=>x.id);
+  let internships=[];
+  if(ids.length){
+   const {data,error:ie}=await sb.from('internships').select('id,student_id,domain,start_date,end_date,total_hours,status,created_at').in('student_id',ids).in('status',['active','completed']).order('created_at',{ascending:false});
+   if(ie)throw ie;
+   internships=data||[];
+  }
+  const latestInternship=new Map();
+  for(const i of internships){if(!latestInternship.has(i.student_id))latestInternship.set(i.student_id,i);}
+  const internshipIds=[...latestInternship.values()].map(x=>x.id);
+  let attendanceRows=[];
+  if(internshipIds.length){
+   const {data,error:ae}=await sb.from('attendance').select('id,internship_id,student_id,attendance_date,time_in,time_out,hours,status,remarks,entry_source,verified_at').in('internship_id',internshipIds).order('attendance_date',{ascending:false});
+   if(ae)throw ae;
+   attendanceRows=data||[];
+  }
+  const byStudent=new Map();
+  for(const a of attendanceRows){if(!byStudent.has(a.student_id))byStudent.set(a.student_id,[]);byStudent.get(a.student_id).push(a);}
+  state.nodeAttendanceStudents=students||[];
+  state.nodeAttendanceInternships=latestInternship;
+  state.nodeAttendanceRows=byStudent;
+  const totalHours=attendanceRows.reduce((s,x)=>s+Math.min(4,Number(x.hours||0)),0);
+  const presentRows=attendanceRows.filter(x=>x.status==='present');
+  let html=head('Attendance','Manage attendance for all students of your assigned college');
+  html+='<div class="grid stats"><div class="card stat"><div class="label">College Students</div><div class="value">'+(students||[]).length+'</div></div><div class="card stat"><div class="label">Students With Attendance</div><div class="value">'+[...byStudent.keys()].length+'</div></div><div class="card stat"><div class="label">Attendance Days</div><div class="value">'+presentRows.length+'</div></div><div class="card stat"><div class="label">Total Hours</div><div class="value">'+totalHours.toFixed(1)+'</div></div></div>';
+  html+='<div class="card" style="margin-top:16px"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><b>College Attendance Register</b><div class="muted">All students of your assigned college are shown here, even when no attendance has been recorded yet.</div></div><button class="btn btn-primary" onclick="openNodeManualAttendance()">＋ Mark Attendance Manually</button></div>';
+  html+='<div class="table-wrap" style="margin-top:14px"><table class="table"><thead><tr><th>Student</th><th>Roll / Registration</th><th>Internship</th><th>Days</th><th>Hours</th><th>Attendance %</th><th>Action</th></tr></thead><tbody>';
+  html+=(students||[]).map(s=>{const rows=byStudent.get(s.id)||[],i=latestInternship.get(s.id),days=rows.filter(x=>x.status==='present').length,hours=rows.reduce((sum,x)=>sum+Math.min(4,Number(x.hours||0)),0),required=Number(i?.total_hours||120),pct=required>0?Math.min(100,(hours/required)*100):0;return '<tr><td><b>'+esc(s.full_name||'—')+'</b><br><small class="muted">'+esc(s.course||'')+(s.department?' · '+esc(s.department):'')+'</small></td><td>'+esc(s.college_roll_number||'—')+'<br><small class="muted">'+esc(s.university_registration_number||'—')+'</small></td><td>'+(i?'<b>'+esc(i.domain||'—')+'</b><br><small class="muted">'+esc(i.status)+' · '+esc(i.start_date||'—')+' to '+esc(i.end_date||'—')+'</small>':'<span class="badge orange">No internship record</span>')+'</td><td>'+days+'</td><td>'+hours.toFixed(1)+'</td><td>'+pct.toFixed(1)+'%</td><td><button class="btn btn-soft" onclick="viewNodeStudentAttendance('+JSON.stringify(s.id)+')">👁 View Attendance</button>'+(i?' <button class="btn btn-primary" onclick="openNodeManualAttendance('+JSON.stringify(s.id)+')">＋ Mark</button>':'')+'</td></tr>'}).join('')||'<tr><td colspan="7" class="empty">No students are assigned to this college yet.</td></tr>';
+  html+='</tbody></table></div></div>';
+  document.getElementById('main').innerHTML=html;
+ }catch(e){console.error('Nodal attendance error',e);document.getElementById('main').innerHTML=head('Attendance','Manage attendance')+'<div class="card alert">'+esc(e.message||'Unable to load attendance.')+'</div>'}
+}
+function nodeAttendanceTimeToHours(timeIn,timeOut){
+ if(!timeIn||!timeOut)return 0;
+ const a=timeIn.split(':').map(Number),b=timeOut.split(':').map(Number),start=a[0]*60+(a[1]||0),end=b[0]*60+(b[1]||0);
+ if(end<=start)return 0;
+ return Math.min(4,(end-start)/60);
+}
+async function openNodeManualAttendance(studentId='',attendanceId=''){
+ try{
+  if(state.role!=='node_officer')throw Error('Only the Nodal Officer can mark attendance manually.');
+  const students=state.nodeAttendanceStudents||[];
+  if(!students.length){await nodeAttendance();return;}
+  const selectedId=studentId||students[0].id,student=students.find(x=>x.id===selectedId)||students[0],internship=state.nodeAttendanceInternships?.get(student.id);
+  if(!internship)throw Error('This student does not have an active/completed internship record yet.');
+  let existing=null;
+  if(attendanceId){const {data,error}=await sb.from('attendance').select('*').eq('id',attendanceId).eq('student_id',student.id).single();if(error)throw error;existing=data;}
+  const today=localDateKey(new Date()),minDate=internship.start_date||'',maxDate=internship.end_date||today,status=existing?.status||'present';
+  const html=head('Manual Attendance','Emergency/manual attendance entry for '+esc(student.full_name||'Student'))+
+   '<div class="card"><div class="alert"><b>Emergency Attendance:</b> Use this when attendance could not be recorded normally. Maximum credited attendance is 4 hours per date.</div>'+
+   '<div class="grid two"><div class="field"><label>Student *</label><select id="na_student" onchange="openNodeManualAttendance(this.value)">'+students.map(s=>'<option value="'+esc(s.id)+'" '+(s.id===student.id?'selected':'')+'>'+esc(s.full_name)+' · '+esc(s.college_roll_number||s.university_registration_number||'')+'</option>').join('')+'</select></div>'+
+   '<div class="field"><label>Internship</label><input value="'+esc((internship.domain||'Internship')+' · '+(internship.start_date||'')+' to '+(internship.end_date||''))+'" readonly></div>'+
+   '<div class="field"><label>Attendance Date *</label><input id="na_date" type="date" value="'+esc(existing?.attendance_date||today)+'" min="'+esc(minDate)+'" max="'+esc(maxDate)+'"></div>'+
+   '<div class="field"><label>Status *</label><select id="na_status" onchange="toggleNodeAttendanceTimeFields()"><option value="present" '+(status==='present'?'selected':'')+'>Present</option><option value="absent" '+(status==='absent'?'selected':'')+'>Absent</option><option value="leave" '+(status==='leave'?'selected':'')+'>Leave</option><option value="holiday" '+(status==='holiday'?'selected':'')+'>Holiday</option></select></div></div>'+
+   '<div id="na_time_fields" class="grid two"><div class="field"><label>Time In</label><input id="na_time_in" type="time" value="'+esc(existing?.time_in||'')+'"></div><div class="field"><label>Time Out</label><input id="na_time_out" type="time" value="'+esc(existing?.time_out||'')+'"></div><div class="field"><label>Hours *</label><input id="na_hours" type="number" min="0" max="4" step="0.25" value="'+esc(existing?.hours!=null?Number(existing.hours).toFixed(2):'4')+'"></div><div class="field"><label>Remarks</label><input id="na_remarks" value="'+esc(existing?.remarks||'')+'" placeholder="Emergency/manual entry reason"></div></div>'+
+   '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px"><button class="btn btn-primary" onclick="saveNodeManualAttendance('+JSON.stringify(student.id)+','+JSON.stringify(existing?.id||'')+')">'+(existing?'Update Attendance':'Save Attendance')+'</button><button class="btn btn-soft" onclick="nodeAttendance()">Cancel</button></div></div>';
+  document.getElementById('main').innerHTML=html;toggleNodeAttendanceTimeFields();
+ }catch(e){toast(e.message||'Unable to open manual attendance form');console.error('Manual attendance form error',e)}
+}
+function toggleNodeAttendanceTimeFields(){
+ const status=document.getElementById('na_status')?.value,box=document.getElementById('na_time_fields');if(!box)return;
+ const disabled=status!=='present';box.querySelectorAll('input').forEach(x=>x.disabled=disabled);if(disabled){const h=document.getElementById('na_hours');if(h)h.value='0';}
+}
+async function saveNodeManualAttendance(studentId,attendanceId=''){
+ try{
+  if(state.role!=='node_officer')throw Error('Only the Nodal Officer can save manual attendance.');
+  const internship=state.nodeAttendanceInternships?.get(studentId);if(!internship)throw Error('Internship record not found for this student.');
+  const date=document.getElementById('na_date')?.value,status=document.getElementById('na_status')?.value,timeIn=document.getElementById('na_time_in')?.value||null,timeOut=document.getElementById('na_time_out')?.value||null;
+  let hours=Number(document.getElementById('na_hours')?.value||0),remarks=document.getElementById('na_remarks')?.value.trim()||null;
+  if(!date)throw Error('Attendance date is required.');
+  if(internship.start_date&&date<internship.start_date)throw Error('Attendance date cannot be before the internship start date.');
+  if(internship.end_date&&date>internship.end_date)throw Error('Attendance date cannot be after the internship end date.');
+  if(status==='present'){
+   if(timeIn&&timeOut){const calculated=nodeAttendanceTimeToHours(timeIn,timeOut);if(!calculated)throw Error('Time Out must be after Time In.');if(!hours)hours=Number(calculated.toFixed(2));}
+   if(hours<=0||hours>4)throw Error('Present attendance hours must be between 0.25 and 4.');
+  }else hours=0;
+  const payload={internship_id:internship.id,student_id:studentId,attendance_date:date,time_in:status==='present'?timeIn:null,time_out:status==='present'?timeOut:null,hours:Number(hours.toFixed(2)),status,remarks,entry_source:'node_officer',verified_by:state.user.id,verified_at:new Date().toISOString()};
+  let existingId=attendanceId;
+  if(!existingId){const {data:existing,error:ee}=await sb.from('attendance').select('id').eq('internship_id',internship.id).eq('attendance_date',date).maybeSingle();if(ee)throw ee;existingId=existing?.id||'';}
+  const result=existingId?await sb.from('attendance').update(payload).eq('id',existingId).eq('student_id',studentId):await sb.from('attendance').insert(payload);
+  if(result.error)throw result.error;
+  toast(existingId?'Attendance updated successfully.':'Attendance marked successfully.');viewNodeStudentAttendance(studentId);
+ }catch(e){toast(e.message||'Unable to save attendance');console.error('Manual attendance save error',e)}
+}
+async function viewNodeStudentAttendance(studentId){
+ try{
+  if(state.role!=='node_officer')throw Error('Only Nodal Officers can view this attendance detail.');
+  const {data:student,error:se}=await sb.from('profiles').select('id,full_name,college_name,college_roll_number,university_registration_number,course,department,semester').eq('id',studentId).eq('college_id',state.profile.college_id).single();if(se)throw se;
+  const {data:i,error:ie}=await sb.from('internships').select('id,domain,start_date,end_date,total_hours,credits,status').eq('student_id',studentId).in('status',['active','completed']).order('created_at',{ascending:false}).limit(1).maybeSingle();if(ie)throw ie;
+  if(!i){document.getElementById('main').innerHTML=head('Attendance Detail',esc(student.full_name||'Student'))+'<div class="card empty">No active/completed internship record found for this student.<br><button class="btn btn-soft" style="margin-top:12px" onclick="nodeAttendance()">Back to Attendance Register</button></div>';return;}
+  const {data:rows,error:ae}=await sb.from('attendance').select('id,attendance_date,time_in,time_out,hours,status,remarks,entry_source').eq('internship_id',i.id).order('attendance_date',{ascending:false});if(ae)throw ae;
+  const list=rows||[],hours=list.reduce((s,x)=>s+Math.min(4,Number(x.hours||0)),0),present=list.filter(x=>x.status==='present').length,required=Number(i.total_hours||120),pct=required?Math.min(100,(hours/required)*100):0;
+  let html=head('Attendance Detail',esc(student.full_name||'Student')+' · Full attendance record');
+  html+='<div class="grid stats"><div class="card stat"><div class="label">Present Days</div><div class="value">'+present+'</div></div><div class="card stat"><div class="label">Hours Completed</div><div class="value">'+hours.toFixed(1)+'</div></div><div class="card stat"><div class="label">Required Hours</div><div class="value">'+required.toFixed(1)+'</div></div><div class="card stat"><div class="label">Completion</div><div class="value">'+pct.toFixed(1)+'%</div></div></div>';
+  html+='<div class="card" style="margin-top:16px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><b>'+esc(student.college_roll_number||'')+' · '+esc(student.university_registration_number||'')+'</b><div class="muted">'+esc(student.course||'')+(student.department?' · '+esc(student.department):'')+' · '+esc(i.domain||'Internship')+'</div></div><div><button class="btn btn-primary" onclick="openNodeManualAttendance('+JSON.stringify(student.id)+')">＋ Mark / Edit Attendance</button> <button class="btn btn-soft" onclick="nodeAttendance()">← Back</button></div></div><div class="table-wrap" style="margin-top:14px"><table class="table"><thead><tr><th>Date</th><th>Status</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Entry</th><th>Remarks</th><th>Action</th></tr></thead><tbody>';
+  html+=(list.map(x=>'<tr><td>'+esc(x.attendance_date)+'</td><td><span class="badge '+(x.status==='present'?'green':x.status==='absent'?'red':'orange')+'">'+esc(x.status||'present')+'</span></td><td>'+esc(x.time_in||'—')+'</td><td>'+esc(x.time_out||'—')+'</td><td>'+Number(x.hours||0).toFixed(2)+'</td><td>'+esc(x.entry_source||'—')+'</td><td>'+esc(x.remarks||'—')+'</td><td><button class="btn btn-soft" onclick="openNodeManualAttendance('+JSON.stringify(student.id)+','+JSON.stringify(x.id)+')">Edit</button></td></tr>').join('')||'<tr><td colspan="8" class="empty">No attendance records yet.</td></tr>')+'</tbody></table></div></div>';
+  document.getElementById('main').innerHTML=html;
+ }catch(e){toast(e.message||'Unable to load attendance detail');console.error('Attendance detail error',e)}
+}
 async function nodeActivities(){ return activities(); }
 async function nodeDocuments(){ return documents(); }
 async function nodeProgress(){ return progress(); }
