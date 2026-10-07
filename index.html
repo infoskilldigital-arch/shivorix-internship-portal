@@ -1065,8 +1065,15 @@ async function reviewCertificateDoc(rowId,certificateId,internshipId,documentTyp
    if(!certificateId)throw Error('Certificate record not found.');
    path=await buildCompletionDocument(documentType==='Internship Certificate'?'certificate':'marksheet',internshipId,certificateId);
   }
-  await downloadDoc(path);
-  toast('Reviewing '+documentType+'. Approve only after checking the document.');
+  const {data,error}=await sb.storage.from('student-documents').createSignedUrl(path,300);
+  if(error)throw error;
+  const response=await fetch(data.signedUrl);
+  if(!response.ok)throw Error('Unable to fetch generated document.');
+  const html=await response.text();
+  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+  const previewUrl=URL.createObjectURL(blob);
+  window.open(previewUrl,'_blank','noopener,noreferrer');
+  setTimeout(()=>URL.revokeObjectURL(previewUrl),60000);
  }catch(e){console.error(e);toast('Unable to open document: '+(e.message||'Review failed'))}
 }
 async function verifyCertificateDoc(id){ return approveOrGenerateCertificateDoc(id,'','','Internship Certificate'); }
