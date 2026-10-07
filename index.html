@@ -1094,11 +1094,38 @@ async function certificate(){
   if(state.role==='admin'){
    const {data:issued,error:ie}=await sb.from('certificates').select('id,internship_id,student_id,certificate_number,issued_date,status').order('issued_date',{ascending:false});
    if(ie)throw ie;
+
+   // Completion documents are generated here, not merely represented as virtual rows.
+   // A completed/issued internship must have real Certificate + Marksheet files before approval.
    for(const c of (issued||[])){
-    for(const type of ['Internship Certificate','Performance Marksheet']){
-     const {data:ex}=await sb.from('student_documents').select('id,student_id,college_id,internship_id,document_type,document_title,file_path,verification_status,remarks,created_at,student_profile:profiles!student_documents_student_id_fkey(full_name,college_name,college_roll_number,university_registration_number)').eq('internship_id',c.internship_id).eq('document_type',type).order('created_at',{ascending:false}).limit(1).maybeSingle();
-     if(ex) rows.push({...ex,certificate_id:c.id});
-     else rows.push({id:'virtual-'+c.id+'-'+type.replace(/\\s/g,'-'),student_id:c.student_id,internship_id:c.internship_id,document_type:type,document_title:type+' — Pending Generation',file_path:'',verification_status:'pending',remarks:'Generated document pending Admin approval',created_at:c.issued_date||new Date().toISOString(),certificate_id:c.id});
+    const types=['Internship Certificate','Performance Marksheet'];
+    for(const type of types){
+     const {data:existing,error:de}=await sb.from('student_documents')
+      .select('id,student_id,college_id,internship_id,document_type,document_title,file_path,verification_status,remarks,created_at,student_profile:profiles!student_documents_student_id_fkey(full_name,college_name,college_roll_number,university_registration_number)')
+      .eq('internship_id',c.internship_id).eq('document_type',type).order('created_at',{ascending:false}).limit(1).maybeSingle();
+     if(de)throw de;
+     if(existing?.file_path){
+      rows.push({...existing,certificate_id:c.id});
+      continue;
+     }
+
+     // Remove an incomplete database-only record before regenerating the actual file.
+     if(existing && !existing.file_path){
+      await sb.from('student_documents').delete().eq('id',existing.id);
+     }
+
+     try{
+      await buildCompletionDocument(type==='Internship Certificate'?'certificate':'marksheet',c.internship_id,c.id);
+      const {data:generated,error:ge}=await sb.from('student_documents')
+       .select('id,student_id,college_id,internship_id,document_type,document_title,file_path,verification_status,remarks,created_at,student_profile:profiles!student_documents_student_id_fkey(full_name,college_name,college_roll_number,university_registration_number)')
+       .eq('internship_id',c.internship_id).eq('document_type',type).order('created_at',{ascending:false}).limit(1).maybeSingle();
+      if(ge)throw ge;
+      if(generated?.file_path) rows.push({...generated,certificate_id:c.id});
+      else rows.push({id:'generation-error-'+c.id+'-'+type.replace(/\\s/g,'-'),student_id:c.student_id,internship_id:c.internship_id,document_type:type,document_title:type+' — Generation Failed',file_path:'',verification_status:'generation_failed',remarks:'Document generation did not create a file.',created_at:c.issued_date||new Date().toISOString(),certificate_id:c.id});
+     }catch(genErr){
+      console.error('Completion document generation failed:',type,genErr);
+      rows.push({id:'generation-error-'+c.id+'-'+type.replace(/\\s/g,'-'),student_id:c.student_id,internship_id:c.internship_id,document_type:type,document_title:type+' — Generation Failed',file_path:'',verification_status:'generation_failed',remarks:genErr?.message||'Document generation failed.',created_at:c.issued_date||new Date().toISOString(),certificate_id:c.id,generation_error:genErr?.message||'Unknown generation error'});
+     }
     }
    }
   }else{
@@ -1108,24 +1135,40 @@ async function certificate(){
    const {data,error}=await q;if(error)throw error;rows=data||[];
    if(state.role==='student')rows=rows.filter(x=>x.verification_status==='verified');
   }
+
   const filtered=rows.filter(x=>!search||[x.student_profile?.full_name,x.student_profile?.college_name,x.student_profile?.college_roll_number,x.student_profile?.university_registration_number,x.document_type,x.document_title].some(v=>String(v||'').toLowerCase().includes(search)));
   let html=head('Certificate','Internship completion certificate and performance marksheet');
+
   if(state.role==='student'){
-   const approved=filtered.filter(x=>x.verification_status==='verified');
+   const approved=filtered.filter(x=>x.verification_status==='verified'&&x.file_path);
    html+='<div class="card"><div class="alert">'+(approved.length>=2?'<b>Admin Approved:</b> Your Certificate and Performance Marksheet are available below.':'Your Certificate and Performance Marksheet will appear here only after <b>SHIVORIX Admin approves both documents</b>.')+'</div></div>';
   }else if(state.role==='admin'||state.role==='node_officer'){
-   html+='<div class="card"><div class="field"><label>Search Student / Roll No. / Registration No.</label><input id="certSearch" value="'+esc(search)+'" placeholder="Search student name, roll no. or registration no..." oninput="certificate()"></div><div class="alert" style="margin-top:12px"><b>Approval Workflow:</b> Certificate and Performance Marksheet are generated automatically and remain <b>Pending</b> until SHIVORIX Admin approves them. Nodal Officer cannot approve these documents.</div></div>';
+   html+='<div class="card"><div class="field"><label>Search Student / Roll No. / Registration No.</label><input id="certSearch" value="'+esc(search)+'" placeholder="Search student name, roll no. or registration no..." oninput="certificate()"></div><div class="alert" style="margin-top:12px"><b>Approval Workflow:</b> Certificate and Performance Marksheet are automatically generated from the completed internship record. Only documents with an actual generated file can be reviewed or approved. Nodal Officer cannot approve these documents.</div></div>';
   }
+
   html+='<div class="card" style="margin-top:16px"><div class="table-wrap"><table class="table"><thead><tr><th>Student</th><th>Type</th><th>Title</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>';
   if(filtered.length){
    html+=filtered.map(x=>{
-    const review=x.verification_status==='pending'?'<button class="btn btn-soft" onclick="reviewCertificateDoc(&quot;'+x.id+'&quot;,&quot;'+(x.certificate_id||'')+'&quot;,&quot;'+x.internship_id+'&quot;,&quot;'+x.document_type+'&quot;)">👁 Review</button>':(x.file_path?'<button class="btn btn-soft" onclick="downloadDoc(&quot;'+x.file_path+'&quot;)">View</button>':'');
-    const approval=state.role==='admin'&&x.verification_status==='pending'?'<button class="btn btn-primary" style="margin-left:6px" onclick="approveOrGenerateCertificateDoc(&quot;'+x.id+'&quot;,&quot;'+(x.certificate_id||'')+'&quot;,&quot;'+x.internship_id+'&quot;,&quot;'+x.document_type+'&quot;)">✓ Approve</button><button class="btn btn-soft" style="margin-left:6px" onclick="rejectCertificateDoc(&quot;'+x.id+'&quot;)">✕ Reject</button>':'';
-    return '<tr><td><b>'+esc(x.student_profile?.full_name||'Student')+'</b><br><small>'+esc(x.student_profile?.college_roll_number||x.student_profile?.university_registration_number||'')+'</small></td><td>'+esc(x.document_type)+'</td><td>'+esc(x.document_title||'—')+'</td><td><span class="badge '+(x.verification_status==='verified'?'green':x.verification_status==='rejected'?'red':'orange')+'">'+esc(x.verification_status||'pending')+'</span></td><td>'+new Date(x.created_at).toLocaleDateString('en-IN')+'</td><td>'+review+approval+'</td></tr>';
+    const status=x.verification_status==='generation_failed'?'Generation Failed':(x.verification_status||'pending');
+    const badge=x.verification_status==='verified'?'green':x.verification_status==='rejected'||x.verification_status==='generation_failed'?'red':'orange';
+    let action='';
+    if(x.file_path){
+     action=x.verification_status==='pending'
+      ?'<button class="btn btn-soft" onclick="reviewCertificateDoc(&quot;'+x.id+'&quot;,&quot;'+(x.certificate_id||'')+'&quot;,&quot;'+x.internship_id+'&quot;,&quot;'+x.document_type+'&quot;)">👁 Review</button>'
+      :'<button class="btn btn-soft" onclick="downloadDoc(&quot;'+x.file_path+'&quot;)">View</button>';
+     if(state.role==='admin'&&x.verification_status==='pending'){
+      action+='<button class="btn btn-primary" style="margin-left:6px" onclick="approveOrGenerateCertificateDoc(&quot;'+x.id+'&quot;,&quot;'+(x.certificate_id||'')+'&quot;,&quot;'+x.internship_id+'&quot;,&quot;'+x.document_type+'&quot;)">✓ Approve</button><button class="btn btn-soft" style="margin-left:6px" onclick="rejectCertificateDoc(&quot;'+x.id+'&quot;)">✕ Reject</button>';
+     }
+    }else if(x.verification_status==='generation_failed'){
+     action='<span class="muted" title="'+esc(x.generation_error||x.remarks||'Generation failed')+'">Generation failed — check error</span>';
+    }else{
+     action='<span class="muted">Generating…</span>';
+    }
+    return '<tr><td><b>'+esc(x.student_profile?.full_name||'Student')+'</b><br><small>'+esc(x.student_profile?.college_roll_number||x.student_profile?.university_registration_number||'')+'</small></td><td>'+esc(x.document_type)+'</td><td>'+esc(x.document_title||'—')+'</td><td><span class="badge '+badge+'">'+esc(status)+'</span></td><td>'+new Date(x.created_at).toLocaleDateString('en-IN')+'</td><td>'+action+'</td></tr>';
    }).join('');
   }else html+='<tr><td colspan="6" class="empty">No Certificate or Performance Marksheet found.</td></tr>';
   html+='</tbody></table></div></div>';
-  if(state.role==='admin')html+='<div class="card" style="margin-top:16px"><h3 style="margin-top:0">Automatic Completion Documents</h3><p class="muted">No manual upload is required. Certificate and Performance Marksheet are generated from the completed internship record and require Admin approval.</p></div>';
+  if(state.role==='admin')html+='<div class="card" style="margin-top:16px"><h3 style="margin-top:0">Automatic Completion Documents</h3><p class="muted">For every completed internship, SHIVORIX automatically creates the Certificate and Performance Marksheet. They stay <b>Pending</b> until Admin reviews and approves them. Manual upload is not required.</p></div>';
   document.getElementById('main').innerHTML=html;
  }catch(e){console.error(e);document.getElementById('main').innerHTML=head('Certificate','Internship completion certificate and performance marksheet')+'<div class="card"><div class="alert red">'+esc(e.message||'Unable to load certificate section')+'</div></div>'}
 }
