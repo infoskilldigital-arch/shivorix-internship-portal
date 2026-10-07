@@ -1052,7 +1052,38 @@ async function saveProject(internshipId){try{const title=document.getElementById
 async function reviewProject(id){const score=prompt('Marks / Score (0-100):','80');if(score===null)return;const n=Number(score);if(!Number.isFinite(n)||n<0||n>100)return toast('Score must be between 0 and 100.');const statusInput=prompt('Status: approved / returned / rejected','approved')||'approved',status=['approved','returned','rejected'].includes(statusInput)?statusInput:'approved',feedback=prompt('Write feedback for the student:','')||null;const {error}=await sb.from('projects').update({score:n,status,feedback}).eq('id',id);if(error)toast(error.message);else{toast('Project/report evaluation saved');project()}}
 
 async function uploadDoc(){try{const f=document.getElementById('dfile').files[0];if(!f)throw Error('Please select a file.');if(f.size>10*1024*1024)throw Error('Maximum file size is 10 MB.');const allowed=['application/pdf','image/jpeg','image/png','image/webp'];if(!allowed.includes(f.type))throw Error('Only PDF, JPG, PNG and WEBP files are allowed.');const safe=f.name.replace(/[^a-zA-Z0-9._-]/g,'_');const path=state.user.id+'/'+Date.now()+'_'+safe;const {error:up}=await sb.storage.from('student-documents').upload(path,f,{contentType:f.type,upsert:false});if(up)throw up;const {data:p}=await sb.from('profiles').select('college_id').eq('id',state.user.id).single();const {error:db}=await sb.from('student_documents').insert({student_id:state.user.id,college_id:p?.college_id||null,document_type:document.getElementById('dtype').value,document_title:f.name,file_path:path,mime_type:f.type,file_size:f.size,uploaded_by:state.user.id});if(db)throw db;toast('Document uploaded securely');documents()}catch(e){toast(e.message)}}
-async function downloadDoc(path){if(String(path||'').startsWith('generated://ipo-acceptance/'))return renderIPOAcceptanceLetter(String(path).split('generated://ipo-acceptance/')[1].split('?')[0]);const {data,error}=await sb.storage.from('student-documents').createSignedUrl(path,300);if(error)toast(error.message);else window.open(data.signedUrl,'_blank')}
+async function downloadDoc(path){
+ if(String(path||'').startsWith('generated://ipo-acceptance/'))return renderIPOAcceptanceLetter(String(path).split('generated://ipo-acceptance/')[1].split('?')[0]);
+ const popup=window.open('about:blank','_blank');
+ try{
+  const {data,error}=await sb.storage.from('student-documents').createSignedUrl(path,300);
+  if(error)throw error;
+  const url=data?.signedUrl;
+  if(!url)throw Error('Document URL could not be created.');
+  const isHtml=String(path||'').toLowerCase().endsWith('.html');
+  if(isHtml){
+   const res=await fetch(url,{cache:'no-store'});
+   if(!res.ok)throw Error('Unable to fetch generated document ('+res.status+').');
+   const html=await res.text();
+   if(!html.trim())throw Error('Generated document is empty.');
+   const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+   const previewUrl=URL.createObjectURL(blob);
+   if(popup&&!popup.closed){
+    popup.location.href=previewUrl;
+    setTimeout(()=>URL.revokeObjectURL(previewUrl),60000);
+   }else{
+    window.open(previewUrl,'_blank');
+    setTimeout(()=>URL.revokeObjectURL(previewUrl),60000);
+   }
+  }else{
+   if(popup&&!popup.closed)popup.location.href=url;else window.open(url,'_blank');
+  }
+ }catch(e){
+  if(popup&&!popup.closed)popup.close();
+  toast('Unable to open document: '+(e.message||'Preview failed'));
+  console.error('Document preview error',e);
+ }
+}
 async function payment(){const {data}=await sb.from('payments').select('*').eq('student_id',state.user.id).order('created_at',{ascending:false});document.getElementById('main').innerHTML=head('Payment','Payment becomes available only after Nodal Officer approval')+`<div class="card">${(data||[]).length?`<div class="table-wrap"><table class="table"><thead><tr><th>Amount</th><th>Status</th><th>Provider</th><th>Date</th></tr></thead><tbody>${data.map(x=>`<tr><td>₹${Number(x.amount).toLocaleString('en-IN')}</td><td>${x.status}</td><td>${x.provider||'—'}</td><td>${new Date(x.created_at).toLocaleDateString()}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">No payment order is available yet. It will appear here after Nodal Officer approval.</div>'}</div>`}
 async function evaluation(){const {data}=await sb.from('evaluations').select('*').eq('student_id',state.user.id).maybeSingle();document.getElementById('main').innerHTML=head('Evaluation','Internship performance evaluation')+`<div class="card">${data?`<div class="grid two">${[['Technical Knowledge',data.technical_knowledge],['Quality of Work',data.quality_of_work],['Initiative & Problem Solving',data.initiative_problem_solving],['Communication',data.communication],['Discipline & Punctuality',data.discipline_punctuality],['Overall Score',data.overall_score],['Rating',data.rating],['Remarks',data.supervisor_remarks]].map(x=>`<div><small class="muted">${x[0]}</small><div style="font-weight:750;margin-top:4px">${esc(x[1]??'—')}</div></div>`).join('')}</div>`:'<div class="empty">Evaluation has not been submitted yet.</div>'}</div>`}
 async function certificate(){
