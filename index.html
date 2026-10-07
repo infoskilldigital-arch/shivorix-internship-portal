@@ -1045,20 +1045,34 @@ async function openNodeManualAttendance(studentId='',attendanceId=''){
   if(state.role!=='node_officer')throw Error('Only the Nodal Officer can mark attendance manually.');
   const students=state.nodeAttendanceStudents||[];
   if(!students.length){await nodeAttendance();return;}
-  const selectedId=studentId||students[0].id,student=students.find(x=>x.id===selectedId)||students[0],internship=state.nodeAttendanceInternships?.get(student.id);
+  const selectedId=studentId||students[0].id;
+  const student=students.find(x=>x.id===selectedId)||students[0];
+  const internship=state.nodeAttendanceInternships?.get(student.id);
   if(!internship)throw Error('This student does not have an active/completed internship record yet.');
   let existing=null;
-  if(attendanceId){const {data,error}=await sb.from('attendance').select('*').eq('id',attendanceId).eq('student_id',student.id).single();if(error)throw error;existing=data;}
+  if(attendanceId){
+   const {data,error}=await sb.from('attendance').select('*').eq('id',attendanceId).eq('student_id',student.id).single();
+   if(error)throw error;
+   existing=data;
+  }
   const today=localDateKey(new Date()),minDate=internship.start_date||'',maxDate=internship.end_date||today,status=existing?.status||'present';
-  const html=head('Manual Attendance','Emergency/manual attendance entry for '+esc(student.full_name||'Student'))+
-   '<div class="card"><div class="alert"><b>Emergency Attendance:</b> Use this when attendance could not be recorded normally. Maximum credited attendance is 4 hours per date.</div>'+
-   '<div class="grid two"><div class="field"><label>Student *</label><select id="na_student" onchange="openNodeManualAttendance(this.value)">'+students.map(s=>'<option value="'+esc(s.id)+'" '+(s.id===student.id?'selected':'')+'>'+esc(s.full_name)+' · '+esc(s.college_roll_number||s.university_registration_number||'')+'</option>').join('')+'</select></div>'+
-   '<div class="field"><label>Internship</label><input value="'+esc((internship.domain||'Internship')+' · '+(internship.start_date||'')+' to '+(internship.end_date||''))+'" readonly></div>'+
+  const old=document.getElementById('nodeAttendanceModal');if(old)old.remove();
+  const modal=document.createElement('div');modal.id='nodeAttendanceModal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px;overflow:auto';
+  modal.innerHTML='<div style="background:#fff;border-radius:16px;width:min(720px,100%);max-height:92vh;overflow:auto;box-shadow:0 25px 70px rgba(0,0,0,.25)">'+
+   '<div style="display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid #eee"><div><h2 style="margin:0;color:#21194f">'+(existing?'Edit Manual Attendance':'Manual Attendance')+'</h2><div class="muted">Emergency / correction entry for Nodal Officer</div></div><button class="btn btn-soft" onclick="document.getElementById(\'nodeAttendanceModal\')?.remove()">✕</button></div>'+
+   '<div style="padding:20px"><div class="alert" style="margin-bottom:16px"><b>Emergency Attendance:</b> This is for manual/correction use only. Normal student attendance remains automatic. Maximum credited hours per day: 4.</div>'+
+   '<div class="form two-col">'+
+   '<div class="field full"><label>Student *</label><select id="na_student" onchange="openNodeManualAttendance(this.value)">'+students.map(s=>'<option value="'+esc(s.id)+'" '+(s.id===student.id?'selected':'')+'>'+esc(s.full_name)+' · '+esc(s.college_roll_number||s.university_registration_number||'')+'</option>').join('')+'</select></div>'+
    '<div class="field"><label>Attendance Date *</label><input id="na_date" type="date" value="'+esc(existing?.attendance_date||today)+'" min="'+esc(minDate)+'" max="'+esc(maxDate)+'"></div>'+
-   '<div class="field"><label>Status *</label><select id="na_status" onchange="toggleNodeAttendanceTimeFields()"><option value="present" '+(status==='present'?'selected':'')+'>Present</option><option value="absent" '+(status==='absent'?'selected':'')+'>Absent</option><option value="leave" '+(status==='leave'?'selected':'')+'>Leave</option><option value="holiday" '+(status==='holiday'?'selected':'')+'>Holiday</option></select></div></div>'+
-   '<div id="na_time_fields" class="grid two"><div class="field"><label>Time In</label><input id="na_time_in" type="time" value="'+esc(existing?.time_in||'')+'"></div><div class="field"><label>Time Out</label><input id="na_time_out" type="time" value="'+esc(existing?.time_out||'')+'"></div><div class="field"><label>Hours *</label><input id="na_hours" type="number" min="0" max="4" step="0.25" value="'+esc(existing?.hours!=null?Number(existing.hours).toFixed(2):'4')+'"></div><div class="field"><label>Remarks</label><input id="na_remarks" value="'+esc(existing?.remarks||'')+'" placeholder="Emergency/manual entry reason"></div></div>'+
-   '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px"><button class="btn btn-primary" onclick="saveNodeManualAttendance('+JSON.stringify(student.id)+','+JSON.stringify(existing?.id||'')+')">'+(existing?'Update Attendance':'Save Attendance')+'</button><button class="btn btn-soft" onclick="nodeAttendance()">Cancel</button></div></div>';
-  document.getElementById('main').innerHTML=html;toggleNodeAttendanceTimeFields();
+   '<div class="field"><label>Status *</label><select id="na_status" onchange="toggleNodeAttendanceTimeFields()"><option value="present" '+(status==='present'?'selected':'')+'>Present</option><option value="absent" '+(status==='absent'?'selected':'')+'>Absent</option><option value="leave" '+(status==='leave'?'selected':'')+'>Leave</option><option value="holiday" '+(status==='holiday'?'selected':'')+'>Holiday</option></select></div>'+
+   '<div class="field"><label>Time In</label><input id="na_time_in" type="time" value="'+esc(existing?.time_in||'')+'"></div>'+
+   '<div class="field"><label>Time Out</label><input id="na_time_out" type="time" value="'+esc(existing?.time_out||'')+'"></div>'+
+   '<div class="field"><label>Hours *</label><input id="na_hours" type="number" min="0" max="4" step="0.25" value="'+esc(existing?.hours!=null?Number(existing.hours).toFixed(2):'4')+'"></div>'+
+   '<div class="field"><label>Remarks</label><input id="na_remarks" value="'+esc(existing?.remarks||'')+'" placeholder="Emergency / correction reason"></div>'+
+   '</div><div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px"><button class="btn btn-soft" onclick="document.getElementById(\'nodeAttendanceModal\')?.remove()">Cancel</button><button class="btn btn-primary" onclick="saveNodeManualAttendance('+JSON.stringify(student.id)+','+JSON.stringify(existing?.id||'')+')">'+(existing?'Update Attendance':'Save Attendance')+'</button></div></div></div>';
+  document.body.appendChild(modal);
+  toggleNodeAttendanceTimeFields();
  }catch(e){toast(e.message||'Unable to open manual attendance form');console.error('Manual attendance form error',e)}
 }
 function toggleNodeAttendanceTimeFields(){
