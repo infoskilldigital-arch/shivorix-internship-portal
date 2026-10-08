@@ -15,7 +15,7 @@ window.addEventListener('error',function(e){
 async function applyPage(){
  const {data:p,error:pe}=await sb.from('profiles').select('full_name,father_name,mother_name,date_of_birth,gender,mobile,email,permanent_address,city,state,pin_code,college_name,university_name,course,department,semester,academic_session,college_roll_number,university_registration_number,college_id,internship_sector_id').eq('id',state.user.id).single();
  if(pe)throw pe;
- const {data:ss,error:se}=await sb.from('internship_sectors').select('id,name').eq('is_active',true).order('name');
+ const {data:ss,error:se}=await sb.from('internship_sectors').select('id,name').eq('is_active',true).eq('is_guideline_sector',true).order('name');
  if(se)throw se;
  const v=x=>esc(x??'');
  document.getElementById('main').innerHTML=head('Apply for Internship','Complete your details and upload the required documents before submitting your internship application')+
@@ -46,7 +46,7 @@ async function applyPage(){
  <div class="form two-col">
   <div class="field"><label>Internship Sector *</label><select id="af_sector" required><option value="">Select Internship Sector</option>${(ss||[]).map(x=>'<option value="'+x.id+'" '+(x.id===p?.internship_sector_id?'selected':'')+'>'+esc(x.name)+'</option>').join('')}</select></div>
   <div class="field"><label>Internship Mode *</label><select id="af_mode" required><option value="offline">Offline / On-site</option><option value="hybrid">Hybrid</option><option value="online">Online / Virtual</option></select><small class="muted">Guideline reference: physical/on-site is prescribed; online/virtual mode requires the applicable College approval and guideline conditions.</small></div>
-  <div class="alert" style="grid-column:1/-1"><b>University Guideline Sector Reference:</b> The guideline's Annexure VII lists 20 indicative internship areas. See the <button class="btn btn-soft" type="button" onclick="go('guidelines')">Guidelines</button> page for the complete list. The list is indicative only and not exhaustive.</div>
+  <div class="alert" style="grid-column:1/-1"><b>University Guideline Sector Reference:</b> The guideline's Annexure VII provides 20 indicative internship areas. These 20 guideline areas are the selectable internship sectors for new applications. See the <button class="btn btn-soft" type="button" onclick="go('guidelines')">Guidelines</button> page for the complete list.</div>
   <div class="field"><label>Required Hours *</label><input id="af_hours" type="number" min="120" max="120" value="120" readonly required></div>
   <div class="field"><label>Credits *</label><input id="af_credits" type="number" min="4" max="4" value="4" readonly required></div>
   <div class="field"><label>Preferred Start Date *</label><input id="af_start" type="date" required></div>
