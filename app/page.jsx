@@ -21,7 +21,7 @@ export default function Page() {
       <aside className="sidebar">
         <div className="brandBlock">
           <div className="logoLockup">
-            <div className="logoMark">S</div>
+            <img className="brandLogo" src="/shivorix-logo.svg" alt="SHIVORIX official logo" />
             <div><div className="brand">SHIVORIX</div><span>Digital • AI • IT Hub</span></div>
           </div>
           <div className="portalLabel">INTERNSHIP MANAGEMENT PORTAL</div>
@@ -82,7 +82,7 @@ function Dashboard() {
           <button className="primary">Continue Internship <span>→</span></button>
         </div>
         <div className="heroBrand">
-          <div className="heroLogo">S</div>
+          <img className="heroLogoImage" src="/shivorix-logo.svg" alt="SHIVORIX official logo" />
           <strong>SHIVORIX</strong>
           <small>Internship Portal</small>
         </div>
